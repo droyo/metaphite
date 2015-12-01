@@ -1,0 +1,7 @@
+{
+	"address": ":12036",
+	"mappings": {
+		"qe": "http://qe-graphite.example.net/",
+		"dev": "http://dev-graphite.example.org/"
+	}
+}

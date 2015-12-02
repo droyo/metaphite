@@ -35,5 +35,10 @@ func main() {
 		}
 	}
 	http.Handle("/render", accesslog.Handler(&srv, nil))
-	log.Fatal(http.ListenAndServe(*addr, nil))
+	status := make(chan error)
+	go func() {
+		status <- http.ListenAndServe(*addr, nil)
+	}()
+	log.Printf("listening on %s", *addr)
+	log.Fatal(<-status)
 }

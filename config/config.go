@@ -37,6 +37,8 @@ var (
 // config JSON, the value of the "mappings" key must be
 // an object of prefix -> URL pairs.
 type Config struct {
+	// Do not validate HTTPS certs
+	InsecureHTTPS bool
 	// The address to listen on, if not specified on the command line.
 	Address string
 	// Maps from metrics prefix to backend URL.

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/tls"
 	"flag"
 	"log"
 	"net/http"
@@ -32,6 +33,13 @@ func main() {
 		srv.Director = cfg.MapRequest
 		if *addr == "" {
 			*addr = cfg.Address
+		}
+		if cfg.InsecureHTTPS {
+			srv.Transport = &http.Transport{
+				TLSClientConfig: &tls.Config{
+					InsecureSkipVerify: true,
+				},
+			}
 		}
 	}
 	http.Handle("/render", accesslog.Handler(&srv, nil))

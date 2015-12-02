@@ -1,6 +1,7 @@
 package config
 
 import (
+	"net/http"
 	"net/url"
 	"strings"
 	"testing"
@@ -51,15 +52,14 @@ func TestMapURL(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, test := range tt {
-		in := parseURL(test.from)
-		out, err := cfg.MapURL(in)
+		req, err := http.NewRequest("GET", test.from, nil)
 		if err != nil {
-			t.Errorf("map %s failed: %v", in, err)
-			continue
+			panic(err)
 		}
-		if out.String() != test.to {
-			t.Errorf("%s → %s, expected %s", in, out.String(), test.to)
+		cfg.MapRequest(req)
+		if req.URL.String() != test.to {
+			t.Errorf("%s → %s, expected %s", test.from, req.URL.String(), test.to)
 		}
-		t.Logf("%s → %s", in, out.String())
+		t.Logf("%s → %s", test.from, req.URL.String())
 	}
 }

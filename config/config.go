@@ -18,6 +18,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"io/ioutil"
 	"net/http"
 	"net/url"
 	"os"
@@ -80,40 +81,48 @@ func Parse(r io.Reader) (*Config, error) {
 	return &cfg, nil
 }
 
-// MapURL maps a request URL to the appropriate backend
-// servers with the prefix pattern stripped. If the URL is not
-// a valid graphite render query, an error is returned.
-func (c Config) MapURL(req *url.URL) (url.URL, error) {
-	if req.Path != "/render" {
-		return url.URL{}, errPath
-	}
-
-	params := req.Query()
-	target := params.Get("target")
-	parts := strings.SplitN(target, ".", 2)
-	if len(parts) < 2 {
-		return url.URL{}, errEmptyTarget
-	}
-
-	prefix, target := parts[0], parts[1]
-	mapped, ok := c.Mappings[prefix]
-	if !ok {
-		return url.URL{}, errNotFound
-	}
-
-	params.Set("target", target)
-	mapped.RawQuery = params.Encode()
-	mapped.Path = "render"
-	mapped.User = req.User
-	mapped.Opaque = req.Opaque
-
-	return mapped, nil
+func badRequest(r *http.Request) {
+	r.URL.Path = "/notfound"
 }
 
+// MapRequest maps a request to the appropriate backend
+// servers with the prefix pattern stripped. If the URL is not
+// a valid graphite render query, an error is returned. Both
+// GET and POST requests are supported.
 func (c *Config) MapRequest(r *http.Request) {
-	if mapped, err := c.MapURL(r.URL); err != nil {
-		r.URL = &url.URL{Host: r.Host, Path: "/404", Scheme: "http"}
-	} else {
-		r.URL = &mapped
+	if r.URL.Path != "/render" {
+		badRequest(r)
+		return
+	}
+
+	target := r.FormValue("target")
+	parts := strings.SplitN(target, ".", 2)
+
+	if len(parts) < 2 {
+		badRequest(r)
+		return
+	}
+
+	prefix, rest := parts[0], parts[1]
+	mapped, ok := c.Mappings[prefix]
+	if !ok {
+		badRequest(r)
+		return
+	}
+
+	r.Form.Set("target", rest)
+	mapped.User = r.URL.User
+	mapped.Opaque = r.URL.Opaque
+	mapped.Path = "/render"
+	*r.URL = mapped
+	r.Host = r.URL.Host
+
+	if r.Method == "GET" {
+		r.URL.RawQuery = r.Form.Encode()
+	} else if r.Method == "POST" {
+		params := r.Form.Encode()
+		r.Header.Del("Content-Length")
+		r.ContentLength = int64(len(params))
+		r.Body = ioutil.NopCloser(strings.NewReader(params))
 	}
 }

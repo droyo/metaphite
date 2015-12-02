@@ -62,6 +62,7 @@ func (h handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	const format = "%s - - [%s] \"%s %s %s\" %d %d \"%s\" \"%s\""
 	const layout = "2/Jan/2006:15:04:05 -0700"
 
+	uri := r.URL.RequestURI()
 	userAgent := "-"
 	if agent := r.UserAgent(); agent != "" {
 		userAgent = agent
@@ -81,7 +82,7 @@ func (h handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		strings.Split(r.RemoteAddr, ":")[0],
 		end.Format(layout),
 		r.Method,
-		r.URL.RequestURI(),
+		uri,
 		r.Proto,
 		shim.status,
 		shim.n,

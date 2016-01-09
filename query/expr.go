@@ -4,26 +4,25 @@ package query
 import __yyfmt__ "fmt"
 
 //line expr.y:2
-//line expr.y:6
+//line expr.y:5
 type yySymType struct {
-	yys      int
-	val      Value
-	metric   Metric
-	function Func
-	query    Query
-	expr     Expr
-	exprs    []Expr
+	yys  int
+	str  string
+	box  Expr
+	list []Expr
 }
 
 const WORD = 57346
-const VALUE = 57347
+const NUMBER = 57347
+const STRING = 57348
 
 var yyToknames = [...]string{
 	"$end",
 	"error",
 	"$unk",
 	"WORD",
-	"VALUE",
+	"NUMBER",
+	"STRING",
 	"','",
 	"'('",
 	"')'",
@@ -44,51 +43,54 @@ var yyExca = [...]int{
 	-2, 0,
 }
 
-const yyNprod = 17
+const yyNprod = 21
 const yyPrivate = 57344
 
 var yyTokenNames []string
 var yyStates []string
 
-const yyLast = 23
+const yyLast = 32
 
 var yyAct = [...]int{
 
-	13, 18, 6, 7, 8, 20, 17, 19, 5, 16,
-	21, 11, 9, 5, 15, 3, 14, 2, 1, 10,
-	12, 22, 4,
+	18, 7, 6, 8, 19, 16, 21, 6, 11, 8,
+	10, 22, 8, 8, 8, 24, 9, 23, 11, 5,
+	25, 14, 12, 20, 2, 26, 1, 13, 17, 15,
+	3, 4,
 }
 var yyPact = [...]int{
 
-	9, -1000, -1000, -7, -1000, -3, 8, 7, 4, -1000,
-	-5, -1000, -1, -1000, -1000, -7, -1000, -1000, 6, -1000,
-	4, -1000, -1000,
+	3, -1000, -1000, 6, -1000, -1000, 2, 18, 17, 1,
+	-2, -1000, -1000, -1, -1000, -1000, -8, 8, -1000, -1000,
+	-1000, 16, -1000, -1000, -2, -1000, -1000,
 }
 var yyPgo = [...]int{
 
-	0, 16, 22, 20, 0, 14, 19, 18,
+	0, 0, 31, 30, 23, 28, 1, 27, 19, 26,
 }
 var yyR1 = [...]int{
 
-	0, 7, 1, 1, 2, 3, 3, 3, 4, 4,
-	4, 5, 5, 5, 6, 6, 6,
+	0, 9, 4, 4, 2, 5, 5, 5, 3, 3,
+	8, 8, 8, 8, 1, 1, 7, 7, 7, 7,
+	6,
 }
 var yyR2 = [...]int{
 
-	0, 1, 1, 1, 4, 0, 1, 3, 1, 1,
-	1, 1, 3, 4, 1, 3, 2,
+	0, 1, 1, 1, 4, 0, 1, 3, 1, 3,
+	1, 1, 2, 2, 1, 1, 0, 1, 3, 2,
+	3,
 }
 var yyChk = [...]int{
 
-	-1000, -7, -1, -5, -2, 4, 9, 10, 7, 4,
-	-6, 4, -3, -4, -1, -5, 5, 11, 6, 8,
-	6, 4, -4,
+	-1000, -9, -4, -3, -2, -8, 4, -6, 11, 10,
+	8, -6, 4, -7, 4, -8, 4, -5, -1, 6,
+	-4, 7, 12, 9, 7, 4, -1,
 }
 var yyDef = [...]int{
 
-	0, -2, 1, 2, 3, 11, 0, 0, 5, 12,
-	0, 14, 0, 6, 8, 2, 10, 13, 16, 4,
-	0, 15, 7,
+	0, -2, 1, 2, 3, 8, 10, 11, 16, 0,
+	5, 12, 13, 0, 17, 9, 10, 0, 6, 14,
+	15, 19, 20, 4, 0, 18, 7,
 }
 var yyTok1 = [...]int{
 
@@ -96,7 +98,7 @@ var yyTok1 = [...]int{
 	3, 3, 3, 3, 3, 3, 3, 3, 3, 3,
 	3, 3, 3, 3, 3, 3, 3, 3, 3, 3,
 	3, 3, 3, 3, 3, 3, 3, 3, 3, 3,
-	7, 8, 3, 3, 6, 3, 9, 3, 3, 3,
+	8, 9, 3, 3, 7, 3, 10, 3, 3, 3,
 	3, 3, 3, 3, 3, 3, 3, 3, 3, 3,
 	3, 3, 3, 3, 3, 3, 3, 3, 3, 3,
 	3, 3, 3, 3, 3, 3, 3, 3, 3, 3,
@@ -104,11 +106,11 @@ var yyTok1 = [...]int{
 	3, 3, 3, 3, 3, 3, 3, 3, 3, 3,
 	3, 3, 3, 3, 3, 3, 3, 3, 3, 3,
 	3, 3, 3, 3, 3, 3, 3, 3, 3, 3,
-	3, 3, 3, 10, 3, 11,
+	3, 3, 3, 11, 3, 12,
 }
 var yyTok2 = [...]int{
 
-	2, 3, 4, 5,
+	2, 3, 4, 5, 6,
 }
 var yyTok3 = [...]int{
 	0,
@@ -456,93 +458,99 @@ yydefault:
 
 	case 1:
 		yyDollar = yyS[yypt-1 : yypt+1]
-		//line expr.y:26
+		//line expr.y:27
 		{
-			yylex.(*lexer).result = yyDollar[1].query
-		}
-	case 2:
-		yyDollar = yyS[yypt-1 : yypt+1]
-		//line expr.y:30
-		{
-			yyVAL.query = Query{Expr: yyDollar[1].metric}
-		}
-	case 3:
-		yyDollar = yyS[yypt-1 : yypt+1]
-		//line expr.y:34
-		{
-			yyVAL.query = Query{Expr: yyDollar[1].function}
+			yylex.(*lexer).result = Query{Expr: yyDollar[1].box}
 		}
 	case 4:
 		yyDollar = yyS[yypt-4 : yypt+1]
-		//line expr.y:40
+		//line expr.y:35
 		{
-			yyVAL.function = Func{Name: string(yyDollar[1].val), Args: yyDollar[3].exprs}
+			yyVAL.box = Func{string(yyDollar[1].str), yyDollar[3].list}
 		}
 	case 5:
 		yyDollar = yyS[yypt-0 : yypt+1]
-		//line expr.y:46
+		//line expr.y:41
 		{
-			yyVAL.exprs = nil
+			yyVAL.list = nil
 		}
 	case 6:
 		yyDollar = yyS[yypt-1 : yypt+1]
-		//line expr.y:50
+		//line expr.y:45
 		{
-			yyVAL.exprs = append(yyVAL.exprs, yyDollar[1].expr)
+			yyVAL.list = append(yyVAL.list, yyDollar[1].box)
 		}
 	case 7:
 		yyDollar = yyS[yypt-3 : yypt+1]
-		//line expr.y:54
+		//line expr.y:49
 		{
-			yyVAL.exprs = append(yyDollar[1].exprs, yyDollar[3].expr)
+			yyVAL.list = append(yyDollar[1].list, yyDollar[3].box)
 		}
 	case 8:
 		yyDollar = yyS[yypt-1 : yypt+1]
-		//line expr.y:60
+		//line expr.y:55
 		{
-			yyVAL.expr = yyDollar[1].query
+			yyVAL.box = Metric(yyDollar[1].str)
 		}
 	case 9:
-		yyDollar = yyS[yypt-1 : yypt+1]
-		//line expr.y:64
+		yyDollar = yyS[yypt-3 : yypt+1]
+		//line expr.y:59
 		{
-			yyVAL.expr = yyDollar[1].metric
-		}
-	case 10:
-		yyDollar = yyS[yypt-1 : yypt+1]
-		//line expr.y:68
-		{
-			yyVAL.expr = yyDollar[1].val
+			yyVAL.box = Metric(string(yyDollar[1].box.(Metric)) + "." + yyDollar[3].str)
 		}
 	case 11:
 		yyDollar = yyS[yypt-1 : yypt+1]
-		//line expr.y:74
+		//line expr.y:66
 		{
-			yyVAL.metric = Metric(yyDollar[1].val)
+			yyVAL.str = yyDollar[1].str
 		}
 	case 12:
-		yyDollar = yyS[yypt-3 : yypt+1]
-		//line expr.y:78
+		yyDollar = yyS[yypt-2 : yypt+1]
+		//line expr.y:70
 		{
-			yyVAL.metric = Metric(string(yyDollar[1].metric) + "." + string(yyDollar[3].val))
+			yyVAL.str = yyDollar[1].str + yyDollar[2].str
 		}
 	case 13:
-		yyDollar = yyS[yypt-4 : yypt+1]
-		//line expr.y:82
+		yyDollar = yyS[yypt-2 : yypt+1]
+		//line expr.y:74
 		{
-			yyVAL.metric = Metric(string(yyDollar[1].metric) + "{" + string(yyDollar[3].val) + "}")
+			yyVAL.str = yyDollar[1].str + yyDollar[2].str
 		}
-	case 15:
-		yyDollar = yyS[yypt-3 : yypt+1]
-		//line expr.y:89
+	case 14:
+		yyDollar = yyS[yypt-1 : yypt+1]
+		//line expr.y:80
 		{
-			yyVAL.val = yyDollar[1].val + "," + yyDollar[3].val
+			yyVAL.box = Value(yyDollar[1].str)
 		}
 	case 16:
-		yyDollar = yyS[yypt-2 : yypt+1]
-		//line expr.y:93
+		yyDollar = yyS[yypt-0 : yypt+1]
+		//line expr.y:87
 		{
-			yyVAL.val = yyDollar[1].val + ","
+			yyVAL.str = ""
+		}
+	case 17:
+		yyDollar = yyS[yypt-1 : yypt+1]
+		//line expr.y:91
+		{
+			yyVAL.str = yyDollar[1].str
+		}
+	case 18:
+		yyDollar = yyS[yypt-3 : yypt+1]
+		//line expr.y:95
+		{
+			yyVAL.str = yyDollar[1].str + "," + yyDollar[3].str
+		}
+	case 19:
+		yyDollar = yyS[yypt-2 : yypt+1]
+		//line expr.y:99
+		{
+			yyVAL.str = yyDollar[1].str + ","
+		}
+	case 20:
+		yyDollar = yyS[yypt-3 : yypt+1]
+		//line expr.y:105
+		{
+			yyVAL.str = "{" + yyDollar[2].str + "}"
 		}
 	}
 	goto yystack /* stack new state and value */

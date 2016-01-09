@@ -1,44 +1,39 @@
 %{
 package query
-
 %}
 
 %union {
-	val Value
-	metric Metric
-	function Func
-	query Query
-	expr Expr
-	exprs []Expr
+	str  string
+	box  Expr
+	list []Expr
 }
 
-%token <val> WORD
-%token <val> VALUE ',' '(' ')' '.' '{' '}'
+%token <str> WORD   /* unquoted word or number */
+%token <str> NUMBER
+%token <str> STRING /* quoted string literal */
+%token <str> ',' '(' ')' '.' '{' '}'
 
-%type <query> query
-%type <function> function
-%type <exprs> arglist
-%type <expr> expression
-%type <metric> metric
-%type <val> wordlist
+%type <box>  expression
+%type <box>  function
+%type <box>  metric
+%type <box>  query
+
+%type <list> arglist
+%type <str>  bracelist
+%type <str>  wordlist
+%type <str> pathelem
 
 %%
-top: query { yylex.(*lexer).result = $1 }
+top: query { yylex.(*lexer).result = Query{Expr: $1} }
 
 query:
 	metric
-	{
-		$$ = Query{Expr: $1}
-	}
 |	function
-	{
-		$$ = Query{Expr: $1}
-	}
 
 function:
-	WORD '('  arglist ')'
+	WORD '(' arglist ')'
 	{
-		$$ = Func{Name: string($1), Args: $3}
+		$$ = Func{string($1), $3}
 	}
 
 arglist:
@@ -55,36 +50,47 @@ arglist:
 		$$ = append($1, $3)
 	}
 
-expression:
-	query
-	{
-		$$ = $1
-	}
-|	metric
-	{
-		$$ = $1
-	}
-|	VALUE
-	{
-		$$ = $1
-	}
-
 metric:
-	WORD
+	pathelem
 	{
 		$$ = Metric($1)
 	}
-|	metric '.' WORD
+|	metric '.' pathelem
 	{
-		$$ = Metric(string($1) + "." + string($3))
-	}
-|	metric '{' wordlist '}'
-	{
-		$$ = Metric(string($1) + "{" + string($3) + "}")
+		$$ = Metric(string($1.(Metric)) + "." + $3)
 	}
 
-wordlist:
+pathelem:
 	WORD
+|	bracelist
+	{
+		$$ = $1
+	}
+|	WORD bracelist
+	{
+		$$ = $1 + $2
+	}
+|	bracelist WORD
+	{
+		$$ = $1 + $2
+	}
+
+expression:
+	STRING
+	{
+		$$ = Value($1)
+	}
+|	query
+
+wordlist:
+	/* empty */
+	{
+		$$ = ""
+	}
+|	WORD
+	{
+		$$ = $1
+	}
 |	wordlist ',' WORD
 	{
 		$$ = $1 + "," + $3
@@ -92,4 +98,10 @@ wordlist:
 |	wordlist ','
 	{
 		$$ = $1 + ","
+	}
+
+bracelist:
+	'{' wordlist '}'
+	{
+		$$ = "{" + $2 + "}"
 	}

@@ -6,9 +6,10 @@ import (
 	"testing"
 )
 
-type lexTest struct {
-	in  string
-	out []token
+type test struct {
+	in       string
+	lexOut   []token
+	parseOut Query
 }
 
 type token struct {
@@ -16,10 +17,11 @@ type token struct {
 	v string
 }
 
-var ttPositive = []lexTest{
+var ttPositive = []test{
 	{
-		in: "myhost.loadavg.05",
-		out: []token{
+		in:       "myhost.loadavg.05",
+		parseOut: Query{Expr: Metric("myhost.loadavg.05")},
+		lexOut: []token{
 			token{WORD, "myhost"},
 			token{'.', ""},
 			token{WORD, "loadavg"},
@@ -29,7 +31,16 @@ var ttPositive = []lexTest{
 	},
 	{
 		in: "aliasByNode(myhost.loadavg.05, 1)",
-		out: []token{
+		parseOut: Query{
+			Expr: Func{
+				Name: "aliasByNode",
+				Args: []Expr{
+					Metric("myhost.loadavg.05"),
+					Value("1"),
+				},
+			},
+		},
+		lexOut: []token{
 			token{WORD, "aliasByNode"},
 			token{'(', ""},
 			token{WORD, "myhost"},
@@ -44,7 +55,16 @@ var ttPositive = []lexTest{
 	},
 	{
 		in: `alias(aws-east*.totals.{queues,exchanges,}, "All the \"best\"")`,
-		out: []token{
+		parseOut: Query{
+			Expr: Func{
+				Name: "alias",
+				Args: []Expr{
+					Metric("aws-east*.totals.{queues,exchanges,}"),
+					Value("All the \\\"best\\\""),
+				},
+			},
+		},
+		lexOut: []token{
 			token{WORD, "alias"},
 			token{'(', ""},
 			token{WORD, "aws-east*"},
@@ -58,13 +78,22 @@ var ttPositive = []lexTest{
 			token{',', ""},
 			token{'}', ""},
 			token{',', ""},
-			token{VALUE, `All the \"best\"`},
+			token{STRING, `All the \"best\"`},
 			token{')', ""},
 		},
 	},
 	{
 		in: "averageSeriesWithWildcards(host.cpu-[0-7].cpu-{user,system}.value, 1)",
-		out: []token{
+		parseOut: Query{
+			Expr: Func{
+				Name: "averageSeriesWithWildcards",
+				Args: []Expr{
+					Metric("host.cpu-[0-7].cpu-{user,system}.value"),
+					Value("1"),
+				},
+			},
+		},
+		lexOut: []token{
 			token{WORD, "averageSeriesWithWildcards"},
 			token{'(', ""},
 			token{WORD, "host"},
@@ -94,7 +123,7 @@ func tokenize(s string) ([]token, error) {
 	)
 	for {
 		t := lex.Lex(lval)
-		v := lval.val
+		v := lval.str
 
 		if t == 0 {
 			break
@@ -113,12 +142,12 @@ func TestLexer(t *testing.T) {
 		if err != nil {
 			t.Error(err)
 		}
-		if len(tok) != len(tt.out) {
-			t.Errorf("%s: got \n%v, expected \n%v", tt.in, tok, tt.out)
+		if len(tok) != len(tt.lexOut) {
+			t.Errorf("%s: got \n%v, expected \n%v", tt.in, tok, tt.lexOut)
 		}
 		for i := range tok {
-			if tok[i] != tt.out[i] {
-				t.Errorf("got \n%v, exptected \n%v", tok, tt.out)
+			if tok[i] != tt.lexOut[i] {
+				t.Errorf("got \n%v, exptected \n%v", tok, tt.lexOut)
 				return
 			}
 		}
@@ -136,6 +165,8 @@ func TestParser(t *testing.T) {
 			t.Errorf("%s: %v", tt.in, err)
 		} else if result != 0 {
 			t.Errorf("parse %q failed but no error", tt.in)
+		} else if !lex.result.equal(tt.parseOut) {
+			t.Errorf("parse %q: got \n%#v, expected \n%#v", tt.in, lex.result, tt.parseOut)
 		} else {
 			t.Logf("%s -> \n%#v", tt.in, lex.result)
 		}

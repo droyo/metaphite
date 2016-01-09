@@ -13,6 +13,7 @@ type lexer struct {
 	target            string
 	start, pos, pos_1 int
 	stateStack        []lexState
+	quoteChar         rune
 	err               []string
 	result            Query
 }
@@ -20,6 +21,77 @@ type lexer struct {
 var eof rune = -1
 
 type lexState int
+
+type charClass int
+
+const (
+	charAlpha charClass = iota
+	charDigit
+	charQuote
+	charPunct
+	charSpace
+	charEscape
+	charEOF
+)
+
+// We use a FSM for the lexical analysis.
+// Row = Current state, Col = character class.
+var fsm = [...][...]func(*lexer, rune) error{
+	stateBegin: [...]func(*lexer, rune) error{
+		charAlpha:  (*lexer).word,
+		charDigit:  (*lexer).number,
+		charQuote:  (*lexer).quoted,
+		charPunct:  (*lexer).constant,
+		charSpace:  (*lexer).noop,
+		charEscape: (*lexer).constant,
+		charEOF:    (*lexer).success,
+	},
+	stateQuote: [...]func(*lexer, rune) error{
+		charAlpha:  (*lexer).noop,
+		charDigit:  (*lexer).noop,
+		charQuote:  (*lexer).endquote,
+		charPunct:  (*lexer).noop,
+		charSpace:  (*lexer).noop,
+		charEscape: (*lexer).escape,
+		charEOF:    (*lexer).failWith("unterminated string literal"),
+	},
+	stateBackslash: [...]func(*lexer, rune) error{
+		charAlpha:  (*lexer).endEscape,
+		charDigit:  (*lexer).endEscape,
+		charQuote:  (*lexer).endEscape,
+		charPunct:  (*lexer).endEscape,
+		charSpace:  (*lexer).endEscape,
+		charEscape: (*lexer).endEscape,
+		charEOF:    (*lexer).failWith("EOF after backslash"),
+	},
+	stateWord: [...]func(*lexer, rune) error{
+		charAlpha:  (*lexer).noop,
+		charDigit:  (*lexer).noop,
+		charQuote:  (*lexer).unexpected,
+		charPunct:  (*lexer).endWord,
+		charSpace:  (*lexer).endWord,
+		charEscape: (*lexer).constant,
+		charEOF:    (*lexer).endWord,
+	},
+	stateNumber: [...]func(*lexer, rune) error{
+		charAlpha:  (*lexer).word,
+		charDigit:  (*lexer).noop,
+		charQuote:  (*lexer).unexpected,
+		charPunct:  (*lexer).decimal,
+		charSpace:  (*lexer).endNumber,
+		charEscape: (*lexer).constant,
+		charEOF:    (*lexer).endNumber,
+	},
+	stateDecimal: [...]func(*lexer, rune) error{
+		charAlpha:  (*lexer).unexpected,
+		charDigit:  (*lexer).noop,
+		charQuote:  (*lexer).unexpected,
+		charPunct:  (*lexer).endDecimal,
+		charSpace:  (*lexer).endDecimal,
+		charEscape: (*lexer).unexpected,
+		charEOF:    (*lexer).endDecimal,
+	},
+}
 
 const (
 	stateBegin lexState = iota
@@ -29,10 +101,11 @@ const (
 	stateWord
 	stateNumber
 	stateDecimal
+	stateEnd
 )
 
-func (l *lexer) dot() Value {
-	return Value(l.target[l.start:l.pos])
+func (l *lexer) dot() string {
+	return l.target[l.start:l.pos]
 }
 
 func (l *lexer) Err() error {
@@ -108,7 +181,7 @@ func (l *lexer) Lex(lval *yySymType) int {
 				l.push(stateBackslash)
 			} else if punct(c) {
 				l.start = l.pos
-				lval.val = ""
+				lval.str = ""
 				return int(c)
 			} else if unicode.IsSpace(c) {
 				l.start = l.pos
@@ -136,10 +209,10 @@ func (l *lexer) Lex(lval *yySymType) int {
 				l.push(stateBackslash)
 			} else if c == '\'' {
 				l.start++
-				lval.val = Value(l.target[l.start:l.pos_1])
+				lval.str = l.target[l.start:l.pos_1]
 				l.pop()
 				l.start = l.pos
-				return VALUE
+				return STRING
 			}
 		case stateDoubleQuote:
 			if c == eof {
@@ -149,10 +222,10 @@ func (l *lexer) Lex(lval *yySymType) int {
 				l.push(stateBackslash)
 			} else if c == '"' {
 				l.start++
-				lval.val = Value(l.target[l.start:l.pos_1])
+				lval.str = l.target[l.start:l.pos_1]
 				l.pop()
 				l.start = l.pos
-				return VALUE
+				return STRING
 			}
 		case stateBackslash:
 			if c == eof {
@@ -178,7 +251,7 @@ func (l *lexer) Lex(lval *yySymType) int {
 			} else {
 				l.pop()
 				l.unstep()
-				lval.val = l.dot()
+				lval.str = l.dot()
 				l.start = l.pos
 				return WORD
 			}
@@ -191,9 +264,9 @@ func (l *lexer) Lex(lval *yySymType) int {
 			} else {
 				l.pop()
 				l.unstep()
-				lval.val = l.dot()
+				lval.str = l.dot()
 				l.start = l.pos
-				return WORD
+				return NUMBER
 			}
 		case stateDecimal:
 			if unicode.IsDigit(c) {
@@ -201,9 +274,9 @@ func (l *lexer) Lex(lval *yySymType) int {
 			} else {
 				l.pop()
 				l.unstep()
-				lval.val = l.dot()
+				lval.str = l.dot()
 				l.start = l.pos
-				return VALUE
+				return NUMBER
 			}
 		default:
 			panic(fmt.Errorf("unknown lexer state %d", l.state()))

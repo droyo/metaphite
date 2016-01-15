@@ -3,105 +3,48 @@ package query
 %}
 
 %union {
-	str  string
-	box  Expr
+	str string
+	expr Expr
 	list []Expr
 }
 
-%token <str> WORD   /* unquoted word or number */
-%token <str> NUMBER
-%token <str> STRING /* quoted string literal */
-%token <str> ',' '(' ')' '.' '{' '}'
+%token <str> '(' ')' ','
 
-%type <box>  expression
-%type <box>  function
-%type <box>  metric
-%type <box>  query
+/* The 'p' is for privacy */
+%token <str> pNUMBER
+%token <str> pWORD
+%token <str> pSTRING
 
+/* it was easier to recognize metrics
+  in the lexer than here in the parser */
+%token <str> pMETRIC
+
+%token <str> pERROR /* not used */
+
+%type <expr> function query expr
 %type <list> arglist
-%type <str>  bracelist
-%type <str>  wordlist
-%type <str> pathelem
-
 %%
 top: query { yylex.(*lexer).result = Query{Expr: $1} }
 
+/* A query consists of a single metric pattern or a single
+  function call. Numbers and quoted strings are not allowed
+  at the top level. */
 query:
-	metric
+	pMETRIC { $$ = Metric($1) }
 |	function
 
 function:
-	WORD '(' arglist ')'
+	pWORD '(' arglist ')'
 	{
-		$$ = Func{string($1), $3}
+		$$ = Func{Name: $1, Args: $3}
 	}
 
 arglist:
-	/* empty */
-	{
-		$$ = nil
-	}
-|	expression
-	{
-		$$ = append($$, $1)
-	}
-|	arglist ',' expression
-	{
-		$$ = append($1, $3)
-	}
+	/* empty */      { $$ = nil }
+|	expr             { $$ = append($$, $1) }
+|	arglist ',' expr { $$ = append($1, $3) }
 
-metric:
-	pathelem
-	{
-		$$ = Metric($1)
-	}
-|	metric '.' pathelem
-	{
-		$$ = Metric(string($1.(Metric)) + "." + $3)
-	}
-
-pathelem:
-	WORD
-|	bracelist
-	{
-		$$ = $1
-	}
-|	WORD bracelist
-	{
-		$$ = $1 + $2
-	}
-|	bracelist WORD
-	{
-		$$ = $1 + $2
-	}
-
-expression:
-	STRING
-	{
-		$$ = Value($1)
-	}
-|	query
-
-wordlist:
-	/* empty */
-	{
-		$$ = ""
-	}
-|	WORD
-	{
-		$$ = $1
-	}
-|	wordlist ',' WORD
-	{
-		$$ = $1 + "," + $3
-	}
-|	wordlist ','
-	{
-		$$ = $1 + ","
-	}
-
-bracelist:
-	'{' wordlist '}'
-	{
-		$$ = "{" + $2 + "}"
-	}
+expr:
+	query   { $$ = $1 }
+|	pSTRING { $$ = Value($1) }
+|	pNUMBER { $$ = Value($1) }

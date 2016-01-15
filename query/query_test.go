@@ -2,31 +2,21 @@ package query
 
 import (
 	"errors"
-	"strings"
 	"testing"
 )
 
 type test struct {
 	in       string
-	lexOut   []token
+	lexOut   []item
 	parseOut Query
-}
-
-type token struct {
-	t int
-	v string
 }
 
 var ttPositive = []test{
 	{
 		in:       "myhost.loadavg.05",
 		parseOut: Query{Expr: Metric("myhost.loadavg.05")},
-		lexOut: []token{
-			token{WORD, "myhost"},
-			token{'.', ""},
-			token{WORD, "loadavg"},
-			token{'.', ""},
-			token{WORD, "05"},
+		lexOut: []item{
+			item{pMETRIC, "myhost.loadavg.05"},
 		},
 	},
 	{
@@ -40,17 +30,13 @@ var ttPositive = []test{
 				},
 			},
 		},
-		lexOut: []token{
-			token{WORD, "aliasByNode"},
-			token{'(', ""},
-			token{WORD, "myhost"},
-			token{'.', ""},
-			token{WORD, "loadavg"},
-			token{'.', ""},
-			token{WORD, "05"},
-			token{',', ""},
-			token{WORD, "1"},
-			token{')', ""},
+		lexOut: []item{
+			item{pWORD, "aliasByNode"},
+			item{'(', "("},
+			item{pMETRIC, "myhost.loadavg.05"},
+			item{',', ","},
+			item{pNUMBER, "1"},
+			item{')', ")"},
 		},
 	},
 	{
@@ -60,26 +46,17 @@ var ttPositive = []test{
 				Name: "alias",
 				Args: []Expr{
 					Metric("aws-east*.totals.{queues,exchanges,}"),
-					Value("All the \\\"best\\\""),
+					Value(`"All the \"best\""`),
 				},
 			},
 		},
-		lexOut: []token{
-			token{WORD, "alias"},
-			token{'(', ""},
-			token{WORD, "aws-east*"},
-			token{'.', ""},
-			token{WORD, "totals"},
-			token{'.', ""},
-			token{'{', ""},
-			token{WORD, "queues"},
-			token{',', ""},
-			token{WORD, "exchanges"},
-			token{',', ""},
-			token{'}', ""},
-			token{',', ""},
-			token{STRING, `All the \"best\"`},
-			token{')', ""},
+		lexOut: []item{
+			item{pWORD, "alias"},
+			item{'(', "("},
+			item{pMETRIC, "aws-east*.totals.{queues,exchanges,}"},
+			item{',', ","},
+			item{pSTRING, `"All the \"best\""`},
+			item{')', ")"},
 		},
 	},
 	{
@@ -93,50 +70,33 @@ var ttPositive = []test{
 				},
 			},
 		},
-		lexOut: []token{
-			token{WORD, "averageSeriesWithWildcards"},
-			token{'(', ""},
-			token{WORD, "host"},
-			token{'.', ""},
-			token{WORD, "cpu-[0-7]"},
-			token{'.', ""},
-			token{WORD, "cpu-"},
-			token{'{', ""},
-			token{WORD, "user"},
-			token{',', ""},
-			token{WORD, "system"},
-			token{'}', ""},
-			token{'.', ""},
-			token{WORD, "value"},
-			token{',', ""},
-			token{WORD, "1"},
-			token{')', ""},
+		lexOut: []item{
+			item{pWORD, "averageSeriesWithWildcards"},
+			item{'(', "("},
+			item{pMETRIC, "host.cpu-[0-7].cpu-{user,system}.value"},
+			item{',', ","},
+			item{pNUMBER, "1"},
+			item{')', ")"},
 		},
 	},
 }
 
-func tokenize(s string) ([]token, error) {
+func tokenize(s string) ([]item, error) {
 	var (
-		acc  []token
-		lex  = lexer{target: s}
-		lval = new(yySymType)
+		acc []item
+		lex = lex(s)
 	)
-	for {
-		t := lex.Lex(lval)
-		v := lval.str
-
-		if t == 0 {
-			break
+	for v := range lex.items {
+		if v.typ == pERROR {
+			return acc, errors.New(v.val)
 		}
-		if t < 0 {
-			return acc, errors.New(strings.Join(lex.err, "\n"))
-		}
-		acc = append(acc, token{t: t, v: string(v)})
+		acc = append(acc, v)
 	}
 	return acc, nil
 }
 
 func TestLexer(t *testing.T) {
+Loop:
 	for _, tt := range ttPositive {
 		tok, err := tokenize(tt.in)
 		if err != nil {
@@ -144,14 +104,15 @@ func TestLexer(t *testing.T) {
 		}
 		if len(tok) != len(tt.lexOut) {
 			t.Errorf("%s: got \n%v, expected \n%v", tt.in, tok, tt.lexOut)
+			continue
 		}
 		for i := range tok {
 			if tok[i] != tt.lexOut[i] {
 				t.Errorf("got \n%v, exptected \n%v", tok, tt.lexOut)
-				return
+				continue Loop
 			}
 		}
-		t.Logf("%s -> %v", tt.in, tok)
+		t.Logf("%s -> \n%v", tt.in, tok)
 	}
 }
 
@@ -159,17 +120,70 @@ func TestParser(t *testing.T) {
 	yyErrorVerbose = true
 	//yyDebug = 3
 	for _, tt := range ttPositive {
-		lex := lexer{target: tt.in}
-		result := yyParse(&lex)
+		lex := lex(tt.in)
+		result := yyParse(lex)
 		if err := lex.Err(); err != nil {
 			t.Errorf("%s: %v", tt.in, err)
 		} else if result != 0 {
 			t.Errorf("parse %q failed but no error", tt.in)
+		} else if lex.result.Expr == nil {
+			t.Errorf("parse %q nil but no error", tt.in)
 		} else if !lex.result.equal(tt.parseOut) {
 			t.Errorf("parse %q: got \n%#v, expected \n%#v", tt.in, lex.result, tt.parseOut)
 		} else {
 			t.Logf("%s -> \n%#v", tt.in, lex.result)
 		}
 		//println()
+	}
+}
+
+var ttBrace = [][]Metric{
+	[]Metric{
+		"servers.{prod,stage}-mysql[1-3].mysql.connections",
+		"servers.prod-mysql[1-3].mysql.connections",
+		"servers.stage-mysql[1-3].mysql.connections",
+	},
+	[]Metric{
+		"{prod,stage}.ci-server1.loadavg.{01,05}",
+		"prod.ci-server1.loadavg.01",
+		"prod.ci-server1.loadavg.05",
+		"stage.ci-server1.loadavg.01",
+		"stage.ci-server1.loadavg.05",
+	},
+}
+
+func TestBraceExpand(t *testing.T) {
+	for _, vv := range ttBrace {
+		pat, want, got := vv[0], vv[1:], vv[0].braceExpand(0, nil)
+		if len(got) != len(want) {
+			t.Errorf("\n%q, got \n%s, expected \n%s", pat, got, want)
+		}
+		for i := range got {
+			if got[i] != want[i] {
+				t.Errorf("\n%q, got \n%s, expected \n%s", pat, got[i], want[i])
+			}
+		}
+		t.Logf("\n%q -> \n%s", pat, got)
+	}
+}
+
+var ttMatch = []struct {
+	pat Metric
+	val string
+	ok  bool
+}{
+	{"servers.host*", "servers.host1", true},
+	{"servers.host[1-3]", "servers.host2", true},
+	{"servers.h*st3", "servers.hoooost3", true},
+	{"servers.{h,m,k}ost3", "servers.host3", true},
+}
+
+func TestMatch(t *testing.T) {
+	for _, tt := range ttMatch {
+		if ok := tt.pat.Match(tt.val); ok != tt.ok {
+			t.Error("match(%q,%q) = %v, expected %v", tt.pat, tt.val, ok, tt.ok)
+		} else {
+			t.Logf("match(%q,%q) = %v", tt.pat, tt.val, tt.ok)
+		}
 	}
 }

@@ -4,283 +4,302 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"unicode"
 	"unicode/utf8"
 )
 
-// tokenizer for graphite queries
+// Based on the talk "Lexical Scanning in Go" by Rob Pike.
+// http://talks.golang.org/2011/lex.slide
+
+// character sets
+const (
+	charAlpha      = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+	charAlphanum   = charAlpha + charNumeric
+	charDelim      = "(),"
+	charGlob       = "[]{}*"
+	charDot        = "."
+	charIdentifier = charAlphanum + "-_"
+	charNumeric    = "0123456789"
+	charQuote      = `"'`
+	charWhitespace = " \t\r\n\v\f"
+)
+
+func is(r int, sets ...string) bool {
+	for _, v := range sets {
+		if strings.ContainsRune(v, rune(r)) {
+			return true
+		}
+	}
+	return false
+}
+
+const eof = -1
+
+type item struct {
+	typ int // see %token decl in expr.y
+	val string
+}
+
+type stateFn func(*lexer) stateFn
+
 type lexer struct {
-	target            string
-	start, pos, pos_1 int
-	stateStack        []lexState
-	quoteChar         rune
-	err               []string
-	result            Query
+	input      string    // the input string
+	start, pos int       // start, end+1 of current item
+	width      int       // length of previous utf8 codepoint
+	items      chan item // scanned lexemes go here
+	err        []string  // errors from yacc
+	result     Query     // yacc puts our result here
 }
 
-var eof rune = -1
-
-type lexState int
-
-type charClass int
-
-const (
-	charAlpha charClass = iota
-	charDigit
-	charQuote
-	charPunct
-	charSpace
-	charEscape
-	charEOF
-)
-
-// We use a FSM for the lexical analysis.
-// Row = Current state, Col = character class.
-var fsm = [...][...]func(*lexer, rune) error{
-	stateBegin: [...]func(*lexer, rune) error{
-		charAlpha:  (*lexer).word,
-		charDigit:  (*lexer).number,
-		charQuote:  (*lexer).quoted,
-		charPunct:  (*lexer).constant,
-		charSpace:  (*lexer).noop,
-		charEscape: (*lexer).constant,
-		charEOF:    (*lexer).success,
-	},
-	stateQuote: [...]func(*lexer, rune) error{
-		charAlpha:  (*lexer).noop,
-		charDigit:  (*lexer).noop,
-		charQuote:  (*lexer).endquote,
-		charPunct:  (*lexer).noop,
-		charSpace:  (*lexer).noop,
-		charEscape: (*lexer).escape,
-		charEOF:    (*lexer).failWith("unterminated string literal"),
-	},
-	stateBackslash: [...]func(*lexer, rune) error{
-		charAlpha:  (*lexer).endEscape,
-		charDigit:  (*lexer).endEscape,
-		charQuote:  (*lexer).endEscape,
-		charPunct:  (*lexer).endEscape,
-		charSpace:  (*lexer).endEscape,
-		charEscape: (*lexer).endEscape,
-		charEOF:    (*lexer).failWith("EOF after backslash"),
-	},
-	stateWord: [...]func(*lexer, rune) error{
-		charAlpha:  (*lexer).noop,
-		charDigit:  (*lexer).noop,
-		charQuote:  (*lexer).unexpected,
-		charPunct:  (*lexer).endWord,
-		charSpace:  (*lexer).endWord,
-		charEscape: (*lexer).constant,
-		charEOF:    (*lexer).endWord,
-	},
-	stateNumber: [...]func(*lexer, rune) error{
-		charAlpha:  (*lexer).word,
-		charDigit:  (*lexer).noop,
-		charQuote:  (*lexer).unexpected,
-		charPunct:  (*lexer).decimal,
-		charSpace:  (*lexer).endNumber,
-		charEscape: (*lexer).constant,
-		charEOF:    (*lexer).endNumber,
-	},
-	stateDecimal: [...]func(*lexer, rune) error{
-		charAlpha:  (*lexer).unexpected,
-		charDigit:  (*lexer).noop,
-		charQuote:  (*lexer).unexpected,
-		charPunct:  (*lexer).endDecimal,
-		charSpace:  (*lexer).endDecimal,
-		charEscape: (*lexer).unexpected,
-		charEOF:    (*lexer).endDecimal,
-	},
+func lex(input string) *lexer {
+	l := lexer{
+		input: input,
+		items: make(chan item),
+	}
+	go l.run()
+	return &l
 }
 
-const (
-	stateBegin lexState = iota
-	stateSingleQuote
-	stateDoubleQuote
-	stateBackslash
-	stateWord
-	stateNumber
-	stateDecimal
-	stateEnd
-)
-
-func (l *lexer) dot() string {
-	return l.target[l.start:l.pos]
+// implement the yyLex interface
+func (l *lexer) Error(e string) { l.err = append(l.err, e) }
+func (l *lexer) Lex(lval *yySymType) int {
+	tok, ok := <-l.items
+	if !ok {
+		// eof reached
+		return 0
+	}
+	lval.str = tok.val
+	if tok.typ == pERROR {
+		return 1
+	}
+	return tok.typ
 }
 
 func (l *lexer) Err() error {
 	if len(l.err) > 0 {
-		return errors.New(strings.Join(l.err, "\n"))
+		return errors.New(strings.Join(l.err, "\n\t"))
 	}
 	return nil
 }
 
-func (l *lexer) errorf(format string, v ...interface{}) {
-	l.err = append(l.err, fmt.Sprintf(format, v...))
+func (l *lexer) dot() string  { return l.input[l.start:l.pos] }
+func (l *lexer) rest() string { return l.input[l.pos:] }
+func (l *lexer) ignore()      { l.start = l.pos }
+func (l *lexer) backup()      { l.pos -= l.width }
+func (l *lexer) peek() int    { defer l.backup(); return l.next() }
+func (l *lexer) emit(t int)   { l.items <- item{t, l.dot()}; l.start = l.pos }
+
+func (l *lexer) errorf(format string, v ...interface{}) stateFn {
+	l.items <- item{pERROR, fmt.Sprintf(format, v...)}
+	return nil
 }
 
-func (l *lexer) state() lexState {
-	if len(l.stateStack) > 0 {
-		return l.stateStack[len(l.stateStack)-1]
+func (l *lexer) run() {
+	for state := lexClear; state != nil; state = state(l) {
 	}
-	return stateBegin
+	close(l.items)
 }
 
-func (l *lexer) unstep() {
-	if l.pos == l.pos_1 {
-		panic("error: unstep() without step()")
+// Any call to lex() should be paired with a deferred
+// call to l.drain(). This ensures that the lexing goroutine
+// finishes.
+func (l *lexer) drain() {
+	for range l.items {
 	}
-	l.pos = l.pos_1
 }
 
-func (l *lexer) step(c *rune) bool {
-	if l.pos > len(l.target) {
-		return false
+// consumes the next character in the input
+func (l *lexer) next() int {
+	var r rune
+	if l.pos >= len(l.input) {
+		l.width = 0
+		return eof
 	}
-	l.pos_1 = l.pos
-	if l.pos == len(l.target) {
-		*c = eof
-		l.pos++
-		return true
+	r, l.width = utf8.DecodeRuneInString(l.rest())
+	l.pos += l.width
+	return int(r)
+}
+
+// consume a rune from the valid set
+func (l *lexer) accept(valid ...string) bool {
+	for _, v := range valid {
+		if strings.ContainsRune(v, rune(l.next())) {
+			return true
+		}
+		l.backup()
 	}
-	r, n := utf8.DecodeRuneInString(l.target[l.pos:])
-	l.pos += n
-	*c = r
-	return true
+	return false
 }
 
-func (l *lexer) push(state lexState) {
-	l.stateStack = append(l.stateStack, state)
-}
-
-func (l *lexer) pop() lexState {
-	s := l.state()
-	if len(l.stateStack) > 0 {
-		l.stateStack = l.stateStack[:len(l.stateStack)-1]
+// consume a run of consecutive runes from the valid set
+func (l *lexer) acceptRun(valid ...string) {
+Loop:
+	for {
+		r := rune(l.next())
+		for _, v := range valid {
+			if strings.ContainsRune(v, r) {
+				continue Loop
+			}
+		}
+		break Loop
 	}
-	return s
+	l.backup()
 }
 
-// See https://github.com/graphite-project/graphite-web/blob/master/webapp/graphite/render/grammar.py
-func punct(c rune) bool {
-	return c == ',' || c == '(' || c == ')' || c == '.' || c == '{' || c == '}'
-}
-
-func (l *lexer) Error(e string) {
-	l.err = append(l.err, e)
-}
-
-func (l *lexer) Lex(lval *yySymType) int {
-	var c rune
-	for l.step(&c) {
-		switch l.state() {
-		case stateBegin:
-			if c == eof {
-				return 0
-			} else if c == '\\' {
-				l.push(stateBackslash)
-			} else if punct(c) {
-				l.start = l.pos
-				lval.str = ""
-				return int(c)
-			} else if unicode.IsSpace(c) {
-				l.start = l.pos
-			} else if c == '-' {
-				l.push(stateNumber)
-			} else if unicode.IsDigit(c) {
-				l.push(stateNumber)
-			} else if unicode.IsLetter(c) {
-				l.push(stateWord)
-			} else if c == '_' || c == '[' || c == ']' {
-				l.push(stateWord)
-			} else if c == '\'' {
-				l.push(stateSingleQuote)
-			} else if c == '"' {
-				l.push(stateDoubleQuote)
-			} else {
-				l.errorf("unexpected char '%c'", c)
-				return -1
-			}
-		case stateSingleQuote:
-			if c == eof {
-				l.errorf("unterminated string")
-				return -1
-			} else if c == '\\' {
-				l.push(stateBackslash)
-			} else if c == '\'' {
-				l.start++
-				lval.str = l.target[l.start:l.pos_1]
-				l.pop()
-				l.start = l.pos
-				return STRING
-			}
-		case stateDoubleQuote:
-			if c == eof {
-				l.errorf("unterminated string")
-				return -1
-			} else if c == '\\' {
-				l.push(stateBackslash)
-			} else if c == '"' {
-				l.start++
-				lval.str = l.target[l.start:l.pos_1]
-				l.pop()
-				l.start = l.pos
-				return STRING
-			}
-		case stateBackslash:
-			if c == eof {
-				l.errorf("eof after backslash")
-				return -1
-			}
-			l.pop()
-		case stateWord:
-			if unicode.IsLetter(c) {
-				// noop
-			} else if unicode.IsDigit(c) {
-				// noop
-			} else if c == '_' {
-				// noop
-			} else if c == '-' {
-				// noop
-			} else if c == '[' {
-				// noop
-			} else if c == ']' {
-				// noop
-			} else if c == '*' {
-				// noop
-			} else {
-				l.pop()
-				l.unstep()
-				lval.str = l.dot()
-				l.start = l.pos
-				return WORD
-			}
-		case stateNumber:
-			if unicode.IsDigit(c) {
-				// noop
-			} else if c == '.' {
-				l.pop()
-				l.push(stateDecimal)
-			} else {
-				l.pop()
-				l.unstep()
-				lval.str = l.dot()
-				l.start = l.pos
-				return NUMBER
-			}
-		case stateDecimal:
-			if unicode.IsDigit(c) {
-				// noop
-			} else {
-				l.pop()
-				l.unstep()
-				lval.str = l.dot()
-				l.start = l.pos
-				return NUMBER
-			}
+// starting state, scan for any expression
+func lexClear(l *lexer) stateFn {
+	for {
+		switch r := l.next(); {
+		case is(r, charNumeric, "+-"):
+			l.backup()
+			return lexNumber
+		case is(r, charWhitespace):
+			l.ignore()
+		case is(r, charIdentifier):
+			l.backup()
+			return lexName
+		case is(r, charGlob):
+			l.backup()
+			return lexMetric
+		case is(r, charDelim):
+			l.emit(r)
+			return lexClear
+		case is(r, charQuote):
+			// note that quote tokens contain their
+			// surrounding tokens. this allows us to
+			// preserve the formatting of string literals
+			// exactly (this is a proxy, after all).
+			l.backup()
+			return lexQuote
+		case r == eof:
+			return nil
 		default:
-			panic(fmt.Errorf("unknown lexer state %d", l.state()))
+			return l.errorf("unexpected character '%c' (%d)", r)
 		}
 	}
-	return 0
+	panic("not reached")
+}
+
+// read a (possibly negative, possibly) number.
+// graphite only accepts decimal numbers. No
+// scientific notation or imaginary numbers are
+// allowed. But note that something like
+//
+// 	305.mymetric.count
+//
+// could be a valid name for a metric.
+func lexNumber(l *lexer) stateFn {
+	l.accept("+-")
+	l.acceptRun(charNumeric)
+	if l.accept(".") {
+		l.acceptRun(charNumeric)
+	}
+	if l.accept(charWhitespace, charDelim) {
+		l.backup()
+		l.emit(pNUMBER)
+		return lexClear
+	}
+	if l.accept(charAlphanum, charGlob, ".") {
+		l.backup()
+		return lexMetric
+	}
+	return l.errorf("unexpected character '%c' in number", l.peek())
+}
+
+// read a simple word, such as a function name
+func lexName(l *lexer) stateFn {
+	l.acceptRun(charIdentifier)
+	if l.accept(charWhitespace, charDelim) {
+		l.backup()
+		l.emit(pWORD)
+		return lexClear
+	}
+	if l.accept(charGlob, charDot) {
+		return lexMetric
+	}
+	return l.errorf("unexpected character '%c' in word", l.peek())
+}
+
+// read a metric name, which is a series of words
+// connected by dots. metrics may contain complex
+// patterns, for instance
+//
+// 	servers.{prod,dev,stage}-sql[1-4].loadavg.*
+//
+// two additional states ensure the braces and brackets
+// are balanced.
+func lexMetric(l *lexer) stateFn {
+	l.acceptRun(charIdentifier, "*.")
+	if l.accept("{") {
+		return lexCurlyBrace
+	} else if l.accept("[") {
+		return lexSquareBracket
+	} else if l.accept(charWhitespace, charDelim) {
+		l.backup()
+		l.emit(pMETRIC)
+		return lexClear
+	} else if l.peek() == eof {
+		l.emit(pMETRIC)
+		return lexClear
+	}
+	return l.errorf("unexpected character '%c' in metric", l.peek())
+}
+
+// consume a glob expression of the form {x,y,z} (do not emit it)
+// The opening '{' is already consumed. '}' characters may be
+// escaped with a backslash.
+func lexCurlyBrace(l *lexer) stateFn {
+	for {
+		switch l.next() {
+		case '\\':
+			if r := l.next(); r != eof {
+				break
+			}
+			fallthrough
+		case eof:
+			return l.errorf("unterminated brace list")
+		case '}':
+			return lexMetric
+		}
+	}
+}
+
+// consume, do not emit, a glob expression of the form [chars]
+// The opening '[' is already consumed. characters may be
+// escaped with a backslash.
+func lexSquareBracket(l *lexer) stateFn {
+	for {
+		switch l.next() {
+		case '\\':
+			if r := l.next(); r != eof {
+				break
+			}
+			fallthrough
+		case eof:
+			return l.errorf("unterminated '[' glob")
+		case ']':
+			return lexMetric
+		}
+	}
+}
+
+// consume a quoted string. quotation marks within the
+// string may be escaped with a backslash.
+func lexQuote(l *lexer) stateFn {
+	quoteChar := l.next()
+Loop:
+	for {
+		switch l.next() {
+		case '\\':
+			if r := l.next(); r != eof {
+				break
+			}
+			fallthrough
+		case eof:
+			return l.errorf("unterminated string")
+		case quoteChar:
+			break Loop
+		}
+	}
+	l.emit(pSTRING)
+	return lexClear
 }

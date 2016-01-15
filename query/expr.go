@@ -8,27 +8,28 @@ import __yyfmt__ "fmt"
 type yySymType struct {
 	yys  int
 	str  string
-	box  Expr
+	expr Expr
 	list []Expr
 }
 
-const WORD = 57346
-const NUMBER = 57347
-const STRING = 57348
+const pNUMBER = 57346
+const pWORD = 57347
+const pSTRING = 57348
+const pMETRIC = 57349
+const pERROR = 57350
 
 var yyToknames = [...]string{
 	"$end",
 	"error",
 	"$unk",
-	"WORD",
-	"NUMBER",
-	"STRING",
-	"','",
 	"'('",
 	"')'",
-	"'.'",
-	"'{'",
-	"'}'",
+	"','",
+	"pNUMBER",
+	"pWORD",
+	"pSTRING",
+	"pMETRIC",
+	"pERROR",
 }
 var yyStatenames = [...]string{}
 
@@ -43,54 +44,47 @@ var yyExca = [...]int{
 	-2, 0,
 }
 
-const yyNprod = 21
+const yyNprod = 11
 const yyPrivate = 57344
 
 var yyTokenNames []string
 var yyStates []string
 
-const yyLast = 32
+const yyLast = 16
 
 var yyAct = [...]int{
 
-	18, 7, 6, 8, 19, 16, 21, 6, 11, 8,
-	10, 22, 8, 8, 8, 24, 9, 23, 11, 5,
-	25, 14, 12, 20, 2, 26, 1, 13, 17, 15,
-	3, 4,
+	8, 11, 5, 10, 3, 5, 6, 3, 12, 13,
+	9, 2, 1, 7, 14, 4,
 }
 var yyPact = [...]int{
 
-	3, -1000, -1000, 6, -1000, -1000, 2, 18, 17, 1,
-	-2, -1000, -1000, -1, -1000, -1000, -8, 8, -1000, -1000,
-	-1000, 16, -1000, -1000, -2, -1000, -1000,
+	-3, -1000, -1000, -1000, -1000, 2, -6, 3, -1000, -1000,
+	-1000, -1000, -1000, -6, -1000,
 }
 var yyPgo = [...]int{
 
-	0, 0, 31, 30, 23, 28, 1, 27, 19, 26,
+	0, 15, 10, 0, 13, 12,
 }
 var yyR1 = [...]int{
 
-	0, 9, 4, 4, 2, 5, 5, 5, 3, 3,
-	8, 8, 8, 8, 1, 1, 7, 7, 7, 7,
-	6,
+	0, 5, 2, 2, 1, 4, 4, 4, 3, 3,
+	3,
 }
 var yyR2 = [...]int{
 
-	0, 1, 1, 1, 4, 0, 1, 3, 1, 3,
-	1, 1, 2, 2, 1, 1, 0, 1, 3, 2,
-	3,
+	0, 1, 1, 1, 4, 0, 1, 3, 1, 1,
+	1,
 }
 var yyChk = [...]int{
 
-	-1000, -9, -4, -3, -2, -8, 4, -6, 11, 10,
-	8, -6, 4, -7, 4, -8, 4, -5, -1, 6,
-	-4, 7, 12, 9, 7, 4, -1,
+	-1000, -5, -2, 10, -1, 8, 4, -4, -3, -2,
+	9, 7, 5, 6, -3,
 }
 var yyDef = [...]int{
 
-	0, -2, 1, 2, 3, 8, 10, 11, 16, 0,
-	5, 12, 13, 0, 17, 9, 10, 0, 6, 14,
-	15, 19, 20, 4, 0, 18, 7,
+	0, -2, 1, 2, 3, 0, 5, 0, 6, 8,
+	9, 10, 4, 0, 7,
 }
 var yyTok1 = [...]int{
 
@@ -98,19 +92,11 @@ var yyTok1 = [...]int{
 	3, 3, 3, 3, 3, 3, 3, 3, 3, 3,
 	3, 3, 3, 3, 3, 3, 3, 3, 3, 3,
 	3, 3, 3, 3, 3, 3, 3, 3, 3, 3,
-	8, 9, 3, 3, 7, 3, 10, 3, 3, 3,
-	3, 3, 3, 3, 3, 3, 3, 3, 3, 3,
-	3, 3, 3, 3, 3, 3, 3, 3, 3, 3,
-	3, 3, 3, 3, 3, 3, 3, 3, 3, 3,
-	3, 3, 3, 3, 3, 3, 3, 3, 3, 3,
-	3, 3, 3, 3, 3, 3, 3, 3, 3, 3,
-	3, 3, 3, 3, 3, 3, 3, 3, 3, 3,
-	3, 3, 3, 3, 3, 3, 3, 3, 3, 3,
-	3, 3, 3, 11, 3, 12,
+	4, 5, 3, 3, 6,
 }
 var yyTok2 = [...]int{
 
-	2, 3, 4, 5, 6,
+	2, 3, 7, 8, 9, 10, 11,
 }
 var yyTok3 = [...]int{
 	0,
@@ -460,97 +446,55 @@ yydefault:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		//line expr.y:27
 		{
-			yylex.(*lexer).result = Query{Expr: yyDollar[1].box}
+			yylex.(*lexer).result = Query{Expr: yyDollar[1].expr}
+		}
+	case 2:
+		yyDollar = yyS[yypt-1 : yypt+1]
+		//line expr.y:33
+		{
+			yyVAL.expr = Metric(yyDollar[1].str)
 		}
 	case 4:
 		yyDollar = yyS[yypt-4 : yypt+1]
-		//line expr.y:35
+		//line expr.y:38
 		{
-			yyVAL.box = Func{string(yyDollar[1].str), yyDollar[3].list}
+			yyVAL.expr = Func{Name: yyDollar[1].str, Args: yyDollar[3].list}
 		}
 	case 5:
 		yyDollar = yyS[yypt-0 : yypt+1]
-		//line expr.y:41
+		//line expr.y:43
 		{
 			yyVAL.list = nil
 		}
 	case 6:
 		yyDollar = yyS[yypt-1 : yypt+1]
-		//line expr.y:45
+		//line expr.y:44
 		{
-			yyVAL.list = append(yyVAL.list, yyDollar[1].box)
+			yyVAL.list = append(yyVAL.list, yyDollar[1].expr)
 		}
 	case 7:
 		yyDollar = yyS[yypt-3 : yypt+1]
-		//line expr.y:49
+		//line expr.y:45
 		{
-			yyVAL.list = append(yyDollar[1].list, yyDollar[3].box)
+			yyVAL.list = append(yyDollar[1].list, yyDollar[3].expr)
 		}
 	case 8:
 		yyDollar = yyS[yypt-1 : yypt+1]
-		//line expr.y:55
+		//line expr.y:48
 		{
-			yyVAL.box = Metric(yyDollar[1].str)
+			yyVAL.expr = yyDollar[1].expr
 		}
 	case 9:
-		yyDollar = yyS[yypt-3 : yypt+1]
-		//line expr.y:59
-		{
-			yyVAL.box = Metric(string(yyDollar[1].box.(Metric)) + "." + yyDollar[3].str)
-		}
-	case 11:
 		yyDollar = yyS[yypt-1 : yypt+1]
-		//line expr.y:66
+		//line expr.y:49
 		{
-			yyVAL.str = yyDollar[1].str
+			yyVAL.expr = Value(yyDollar[1].str)
 		}
-	case 12:
-		yyDollar = yyS[yypt-2 : yypt+1]
-		//line expr.y:70
-		{
-			yyVAL.str = yyDollar[1].str + yyDollar[2].str
-		}
-	case 13:
-		yyDollar = yyS[yypt-2 : yypt+1]
-		//line expr.y:74
-		{
-			yyVAL.str = yyDollar[1].str + yyDollar[2].str
-		}
-	case 14:
+	case 10:
 		yyDollar = yyS[yypt-1 : yypt+1]
-		//line expr.y:80
+		//line expr.y:50
 		{
-			yyVAL.box = Value(yyDollar[1].str)
-		}
-	case 16:
-		yyDollar = yyS[yypt-0 : yypt+1]
-		//line expr.y:87
-		{
-			yyVAL.str = ""
-		}
-	case 17:
-		yyDollar = yyS[yypt-1 : yypt+1]
-		//line expr.y:91
-		{
-			yyVAL.str = yyDollar[1].str
-		}
-	case 18:
-		yyDollar = yyS[yypt-3 : yypt+1]
-		//line expr.y:95
-		{
-			yyVAL.str = yyDollar[1].str + "," + yyDollar[3].str
-		}
-	case 19:
-		yyDollar = yyS[yypt-2 : yypt+1]
-		//line expr.y:99
-		{
-			yyVAL.str = yyDollar[1].str + ","
-		}
-	case 20:
-		yyDollar = yyS[yypt-3 : yypt+1]
-		//line expr.y:105
-		{
-			yyVAL.str = "{" + yyDollar[2].str + "}"
+			yyVAL.expr = Value(yyDollar[1].str)
 		}
 	}
 	goto yystack /* stack new state and value */

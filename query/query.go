@@ -2,7 +2,10 @@
 // abstract syntax tree.
 package query
 
-import "fmt"
+import (
+	"path"
+	"strings"
+)
 
 //go:generate -command yacc go tool yacc
 //go:generate yacc -o expr.go expr.y
@@ -23,6 +26,14 @@ func (q *Query) String() string {
 // of a single metric name (or glob), or a function call.
 type Query struct {
 	Expr
+}
+
+func (x Query) equal(y Expr) bool {
+	yq, ok := y.(Query)
+	if ok {
+		return x.Expr.equal(yq.Expr)
+	}
+	return false
 }
 
 // An Expr represents a graphite query subexpression.
@@ -57,15 +68,116 @@ func (xfn Func) equal(y Expr) bool {
 }
 
 // A Metric is the name of a graphite metric, a list of words separated
-// by dots.
+// by dots. If a Metric contains a glob pattern, it can be expanded
+// to multiple metrics using the Expand method.
 type Metric string
 
 func (x Metric) equal(y Expr) bool {
 	if m, ok := y.(Metric); ok {
 		return x == m
 	}
-	fmt.Printf("%q != %q (%[1]T != %T)\n", x, y)
 	return false
+}
+
+// Split splits m immediately following the first dot
+func (m Metric) Split() (first, rest Metric) {
+	first = m
+	dot := strings.Index(string(m), ".")
+	if dot >= 0 {
+		first = m[:dot]
+		rest = m[dot+1:]
+	}
+	return first, rest
+}
+
+// Match returns true if the metric is equal to or matches name
+func (m Metric) Match(name string) bool {
+	for _, pat := range m.braceExpand(0, nil) {
+		if pat.match(name) {
+			return true
+		}
+	}
+	return false
+}
+
+// match returns true if the Metric pat matches s.
+func (pat Metric) match(s string) bool {
+	ok, err := path.Match(string(pat), s)
+	if err != nil {
+		return false
+	}
+	return ok
+}
+
+// braceExpand expands all brace-delimited lists in a Metric
+// and produces a list of simple Metrics.
+func (m Metric) braceExpand(depth int, addto []Metric) []Metric {
+	const maxPatterns = 100
+	var (
+		escape, inbrace bool
+		start           int
+		prefix, suffix  Metric
+		segments        []Metric
+	)
+	if len(m) == 0 {
+		return addto
+	}
+	if len(addto) == 0 {
+		addto = append(addto, "")
+	}
+	if depth > maxPatterns {
+		goto done
+	}
+
+Loop:
+	for i, v := range m {
+		if escape {
+			escape = false
+			continue
+		}
+		switch v {
+		case '\\':
+			escape = true
+		case '{':
+			if inbrace {
+				// foo.{{bar,baz} is invalid
+				return nil
+			}
+			inbrace = true
+			prefix = m[:i]
+			start = i + 1
+		case ',':
+			if !inbrace {
+				break
+			}
+			segments = append(segments, prefix+m[start:i])
+			start = i + 1
+		case '}':
+			inbrace = false
+			segments = append(segments, prefix+m[start:i])
+			suffix = m[i+1:]
+			break Loop
+		}
+	}
+done:
+	if inbrace {
+		// unterminated brace expansion.
+		return nil
+	}
+	if len(segments) == 0 {
+		// no brace expansion in this fragment
+		for i := range addto {
+			addto[i] += m
+		}
+		return addto
+	}
+	result := make([]Metric, 0, len(segments)*len(addto))
+	for _, pfx := range addto {
+		for _, seg := range segments {
+			result = append(result, pfx+seg)
+		}
+	}
+	return suffix.braceExpand(depth+1, result)
 }
 
 // A Value is a literal number, or a quoted string literal, which may
@@ -78,7 +190,6 @@ func (x Value) equal(y Expr) bool {
 	if m, ok := y.(Value); ok {
 		return x == m
 	}
-	fmt.Printf("%q != %q (%[1]T != %T)\n", x, y)
 	return false
 }
 
@@ -90,7 +201,3 @@ func (Func) isExpr()   {}
 func (Metric) isExpr() {}
 func (Value) isExpr()  {}
 func (Query) isExpr()  {}
-
-func (x Query) equal(y Query) bool {
-	return x.Expr.equal(y.Expr)
-}

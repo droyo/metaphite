@@ -223,6 +223,7 @@ func lexName(l *lexer) stateFn {
 		return lexClear
 	}
 	if l.accept(charGlob, charDot) {
+		l.backup()
 		return lexMetric
 	}
 	return l.errorf("unexpected character '%c' in word", l.peek())

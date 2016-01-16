@@ -3,6 +3,10 @@
 package query
 
 import (
+	"bytes"
+	"errors"
+	"fmt"
+	"io"
 	"path"
 	"strings"
 )
@@ -12,10 +16,56 @@ import (
 
 //&target=averageSeries(company.server*.applicationInstance.requestsHandled)
 
+// Parse parses a graphite query. The various expressions
+// in a query can be accessed and modified through the methods
+// on the returned Query value.
+func Parse(query string) (Query, error) {
+	l := lex(query)
+	defer l.drain()
+
+	result := yyParse(l)
+	if err := l.Err(); err != nil {
+		return Query{}, err
+	}
+
+	if result != 0 {
+		return Query{}, errors.New("parse error")
+	}
+
+	return l.result, nil
+}
+
 // String produces the string representation of a (possibly modified)
 // query. The return value is not url-encoded.
-func (q *Query) String() string {
-	return ""
+func (q Query) String() string {
+	var buf bytes.Buffer
+	marshalExpr(&buf, q, 0)
+	return buf.String()
+}
+
+func marshalExpr(w io.Writer, e Expr, depth int) {
+	const maxDepth = 200
+	if depth > maxDepth {
+		return
+	}
+
+	switch e := e.(type) {
+	case Query:
+		marshalExpr(w, e.Expr, depth+1)
+	case Func:
+		fmt.Fprint(w, e.Name, "(")
+		for i, v := range e.Args {
+			marshalExpr(w, v, depth+1)
+			if i < len(e.Args)-1 {
+				fmt.Fprint(w, ", ")
+			}
+		}
+		fmt.Fprint(w, ")")
+	case Value:
+		fmt.Fprint(w, e)
+	case Metric:
+		fmt.Fprint(w, e)
+	}
 }
 
 // Metrics produces a list of metrics referenced in a query.

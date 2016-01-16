@@ -237,3 +237,19 @@ func TestFlatten(t *testing.T) {
 		}
 	}
 }
+
+func TestString(t *testing.T) {
+	for _, tt := range ttPositive {
+		q, err := Parse(tt.in)
+		if err != nil {
+			t.Error(err)
+			continue
+		}
+		if s := q.String(); s != tt.in {
+			t.Errorf("got \n%q, expected \n%q", s, tt.in)
+			continue
+		} else {
+			t.Logf("\n%q -> \n%q", tt.in, s)
+		}
+	}
+}

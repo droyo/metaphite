@@ -187,3 +187,53 @@ func TestMatch(t *testing.T) {
 		}
 	}
 }
+
+var ttFlatten = []struct {
+	query string
+	list  []Metric
+}{
+	{
+		"sumSeries(ganglia{a,}.by-function.server1.*.cpu.load5, ganglia.by-function.server{1,2}.*.cpu.load{62,m})",
+		[]Metric{
+			"ganglia{a,}.by-function.server1.*.cpu.load5",
+			"ganglia.by-function.server{1,2}.*.cpu.load{62,m}",
+		},
+	},
+}
+
+func TestFlatten(t *testing.T) {
+	for _, tt := range ttFlatten {
+		lex := lex(tt.query)
+		result := yyParse(lex)
+		if err := lex.Err(); err != nil {
+			t.Errorf("%s: %v", tt.query, err)
+			continue
+		}
+		if result != 0 {
+			t.Errorf("parse %q failed but no error", tt.query)
+			continue
+		}
+		if lex.result.Expr == nil {
+			t.Errorf("parse %q nil but no error", tt.query)
+			continue
+		}
+		mp := lex.result.Metrics()
+		m := make([]Metric, 0, len(mp))
+		for _, p := range mp {
+			m = append(m, *p)
+		}
+		if len(m) != len(tt.list) {
+			t.Errorf("%q\n%#v != \n%#v in \n%#v", tt.query, m, tt.list, lex.result)
+			continue
+		}
+		match := true
+		for i, v := range m {
+			match = match && v == tt.list[i]
+		}
+		if !match {
+			t.Errorf("%q\n%#v != \n%#v in \n%#v", tt.query, m, tt.list, lex.result)
+		} else {
+			t.Logf("%q -> \n%q", tt.query, m)
+		}
+	}
+}

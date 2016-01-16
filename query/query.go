@@ -36,6 +36,46 @@ func (x Query) equal(y Expr) bool {
 	return false
 }
 
+// walk calls fn on each expression in a Query in
+// depth-first order
+func (q Query) walk(fn func(Expr)) {
+	walk(q.Expr, fn, 0)
+}
+
+func walk(e Expr, fn func(Expr), depth int) {
+	const maxDepth = 200
+	if depth > maxDepth {
+		return
+	}
+	switch v := e.(type) {
+	case Func:
+		fn(v)
+		for _, vv := range v.Args {
+			walk(vv, fn, depth+1)
+		}
+	case Query:
+		walk(v.Expr, fn, depth+1)
+	case Value:
+		fn(v)
+	case Metric:
+		fn(v)
+	}
+}
+
+// Metrics returns a slice of pointers to all metric names
+// referenced in a query. The Metrics may be mutated
+// through the pointer values to affect the output of the
+// Query's String method.
+func (q Query) Metrics() []*Metric {
+	var result []*Metric
+	q.walk(func(expr Expr) {
+		if m, ok := expr.(Metric); ok {
+			result = append(result, &m)
+		}
+	})
+	return result
+}
+
 // An Expr represents a graphite query subexpression.
 type Expr interface {
 	isExpr()

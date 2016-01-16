@@ -47,6 +47,7 @@ type lexer struct {
 	width      int       // length of previous utf8 codepoint
 	items      chan item // scanned lexemes go here
 	err        []string  // errors from yacc
+	last       string    // last token emitted
 	result     Query     // yacc puts our result here
 }
 
@@ -60,7 +61,11 @@ func lex(input string) *lexer {
 }
 
 // implement the yyLex interface
-func (l *lexer) Error(e string) { l.err = append(l.err, e) }
+func (l *lexer) Error(e string) {
+	s := fmt.Sprintf("%v in %q at column %d", e, l.last, l.pos-len(l.last))
+	l.err = append(l.err, s)
+}
+
 func (l *lexer) Lex(lval *yySymType) int {
 	tok, ok := <-l.items
 	if !ok {
@@ -86,7 +91,11 @@ func (l *lexer) rest() string { return l.input[l.pos:] }
 func (l *lexer) ignore()      { l.start = l.pos }
 func (l *lexer) backup()      { l.pos -= l.width }
 func (l *lexer) peek() int    { defer l.backup(); return l.next() }
-func (l *lexer) emit(t int)   { l.items <- item{t, l.dot()}; l.start = l.pos }
+func (l *lexer) emit(t int) {
+	l.last = l.dot()
+	l.items <- item{t, l.dot()}
+	l.start = l.pos
+}
 
 func (l *lexer) errorf(format string, v ...interface{}) stateFn {
 	l.items <- item{pERROR, fmt.Sprintf(format, v...)}

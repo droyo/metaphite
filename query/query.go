@@ -130,9 +130,18 @@ func (m Metric) Split() (first, rest Metric) {
 	return first, rest
 }
 
+// If a Metric contains any brace expansions,
+// Expand expands them and returns a slice
+// of Metrics for each expansion. Otherwise,
+// Expand returns a single-element slice containing
+// the original Metric.
+func (m Metric) Expand() []Metric {
+	return m.braceExpand(0, nil)
+}
+
 // Match returns true if the metric is equal to or matches name
 func (m Metric) Match(name string) bool {
-	for _, pat := range m.braceExpand(0, nil) {
+	for _, pat := range m.Expand() {
 		if pat.match(name) {
 			return true
 		}

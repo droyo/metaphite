@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/droyo/meta-graphite/accesslog"
-	"github.com/droyo/meta-graphite/config"
+	"github.com/droyo/metaphite/accesslog"
+	"github.com/droyo/metaphite/config"
 )
 
 var (

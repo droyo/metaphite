@@ -1,7 +1,7 @@
 /*
-Package config parses config files for meta-graphite.
+Package config parses config files for metaphite.
 
-meta-graphite config files are in JSON format, and consists
+metaphite config files are in JSON format, and consists
 of a single JSON object containing string/string pairs. The
 key should be a metrics prefix to match, and the value should
 be a URL for the graphite server. For example,
@@ -30,7 +30,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/droyo/meta-graphite/query"
+	"github.com/droyo/metaphite/query"
 )
 
 type backend struct {
@@ -39,7 +39,7 @@ type backend struct {
 }
 
 // A Config contains the necessary information for running
-// a meta-graphite server. Most importantly, it contains the
+// a metaphite server. Most importantly, it contains the
 // mappings of metrics prefixes to backend servers. In the
 // config JSON, the value of the "mappings" key must be
 // an object of prefix -> URL pairs.

@@ -20,7 +20,6 @@ package config
 import (
 	"crypto/tls"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -32,11 +31,6 @@ import (
 	"strings"
 
 	"github.com/droyo/meta-graphite/query"
-)
-
-var (
-	errNotFound   = errors.New("prefix not found in config")
-	errMultiMatch = errors.New("multiple backends in query")
 )
 
 type backend struct {
@@ -56,6 +50,8 @@ type Config struct {
 	Address string
 	// Maps from metrics prefix to backend URL.
 	Mappings map[string]string
+	// Dump proxied requests
+	Debug bool
 
 	proxy map[string]backend
 }
@@ -157,8 +153,10 @@ func (c *Config) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case "GET":
 		r.URL.RawQuery = form.Encode()
 		r.Host = server.url.Host
-		if dmp, err := httputil.DumpRequest(r, false); err == nil {
-			log.Printf("%s", dmp)
+		if c.Debug {
+			if dmp, err := httputil.DumpRequest(r, false); err == nil {
+				log.Printf("%s", dmp)
+			}
 		}
 	case "POST":
 		r.Body = ioutil.NopCloser(
@@ -182,7 +180,9 @@ func (c *Config) proxyTargets(queries []*query.Query) (url.Values, backend) {
 func (c *Config) route(q *query.Query) (target string, server backend) {
 	for _, m := range q.Metrics() {
 		pfx, rest := m.Split()
-		log.Printf("%q -> %q, %q", *m, pfx, rest)
+		if c.Debug {
+			log.Printf("%q -> %q, %q", *m, pfx, rest)
+		}
 		s, ok := c.proxy[string(pfx)]
 		if ok {
 			server = s

@@ -1,6 +1,7 @@
 {
 	"address": ":12036",
 	"insecureHTTPS": false,
+	"debug": false,
 	"mappings": {
 		"qe": "http://qe-graphite.example.net/",
 		"dev": "http://dev-graphite.example.org/"

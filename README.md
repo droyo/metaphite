@@ -33,3 +33,13 @@ To run `meta-graphite`, execute
 
 meta-graphite will log http requests to standard error in
 the Common Log Format.
+
+# Usage
+
+With meta-graphite listening on http://localhost:8080 , open a
+`render` query in your browser:
+
+	`open http://localhost:12036/render?target=aliasByMetric%28scale%dev.servers.messagebus01.rabbitmq.object_totals.{queues,exchanges,consumers,channels,connections},%202%29%29`
+
+You should see a graph rendered by the server specified for your
+`dev` mapping in your configuration.

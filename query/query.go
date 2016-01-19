@@ -19,17 +19,17 @@ import (
 // Parse parses a graphite query. The various expressions
 // in a query can be accessed and modified through the methods
 // on the returned Query value.
-func Parse(query string) (Query, error) {
+func Parse(query string) (*Query, error) {
 	l := lex(query)
 	defer l.drain()
 
 	result := yyParse(l)
 	if err := l.Err(); err != nil {
-		return Query{}, err
+		return nil, err
 	}
 
 	if result != 0 {
-		return Query{}, errors.New("parse error")
+		return nil, errors.New("parse error")
 	}
 
 	return l.result, nil
@@ -37,7 +37,7 @@ func Parse(query string) (Query, error) {
 
 // String produces the string representation of a (possibly modified)
 // query. The return value is not url-encoded.
-func (q Query) String() string {
+func (q *Query) String() string {
 	var buf bytes.Buffer
 	marshalExpr(&buf, q, 0)
 	return buf.String()
@@ -50,21 +50,22 @@ func marshalExpr(w io.Writer, e Expr, depth int) {
 	}
 
 	switch e := e.(type) {
-	case Query:
+	case *Query:
 		marshalExpr(w, e.Expr, depth+1)
-	case Func:
+	case *Func:
 		fmt.Fprint(w, e.Name, "(")
 		for i, v := range e.Args {
-			marshalExpr(w, v, depth+1)
+			expr := v
+			marshalExpr(w, expr, depth+1)
 			if i < len(e.Args)-1 {
 				fmt.Fprint(w, ", ")
 			}
 		}
 		fmt.Fprint(w, ")")
-	case Value:
-		fmt.Fprint(w, e)
-	case Metric:
-		fmt.Fprint(w, e)
+	case *Value:
+		fmt.Fprint(w, *e)
+	case *Metric:
+		fmt.Fprint(w, *e)
 	}
 }
 
@@ -78,9 +79,8 @@ type Query struct {
 	Expr
 }
 
-func (x Query) equal(y Expr) bool {
-	yq, ok := y.(Query)
-	if ok {
+func (x *Query) equal(y Expr) bool {
+	if yq, ok := y.(*Query); ok && yq != nil {
 		return x.Expr.equal(yq.Expr)
 	}
 	return false
@@ -88,7 +88,7 @@ func (x Query) equal(y Expr) bool {
 
 // walk calls fn on each expression in a Query in
 // depth-first order
-func (q Query) walk(fn func(Expr)) {
+func (q *Query) walk(fn func(Expr)) {
 	walk(q.Expr, fn, 0)
 }
 
@@ -98,16 +98,16 @@ func walk(e Expr, fn func(Expr), depth int) {
 		return
 	}
 	switch v := e.(type) {
-	case Func:
+	case *Func:
 		fn(v)
 		for _, vv := range v.Args {
 			walk(vv, fn, depth+1)
 		}
-	case Query:
+	case *Query:
 		walk(v.Expr, fn, depth+1)
-	case Value:
+	case *Value:
 		fn(v)
-	case Metric:
+	case *Metric:
 		fn(v)
 	}
 }
@@ -116,11 +116,11 @@ func walk(e Expr, fn func(Expr), depth int) {
 // referenced in a query. The Metrics may be mutated
 // through the pointer values to affect the output of the
 // Query's String method.
-func (q Query) Metrics() []*Metric {
+func (q *Query) Metrics() []*Metric {
 	var result []*Metric
 	q.walk(func(expr Expr) {
-		if m, ok := expr.(Metric); ok {
-			result = append(result, &m)
+		if m, ok := expr.(*Metric); ok {
+			result = append(result, m)
 		}
 	})
 	return result
@@ -128,7 +128,6 @@ func (q Query) Metrics() []*Metric {
 
 // An Expr represents a graphite query subexpression.
 type Expr interface {
-	isExpr()
 	equal(e Expr) bool
 }
 
@@ -138,9 +137,10 @@ type Func struct {
 	Args []Expr // zero or more arguments
 }
 
-func (xfn Func) equal(y Expr) bool {
-	yfn, ok := y.(Func)
-	if !ok {
+func (f *Func) String() string { return f.Name }
+func (xfn *Func) equal(y Expr) bool {
+	yfn, ok := y.(*Func)
+	if !ok || yfn == nil {
 		return false
 	}
 	if xfn.Name != yfn.Name {
@@ -162,12 +162,14 @@ func (xfn Func) equal(y Expr) bool {
 // to multiple metrics using the Expand method.
 type Metric string
 
-func (x Metric) equal(y Expr) bool {
-	if m, ok := y.(Metric); ok {
-		return x == m
+func (x *Metric) equal(y Expr) bool {
+	if m, ok := y.(*Metric); ok && m != nil {
+		return *x == *m
 	}
 	return false
 }
+
+func (m *Metric) String() string { return string(*m) }
 
 // Split splits m immediately following the first dot
 func (m Metric) Split() (first, rest Metric) {
@@ -285,18 +287,11 @@ done:
 // conversions.
 type Value string
 
-func (x Value) equal(y Expr) bool {
-	if m, ok := y.(Value); ok {
-		return x == m
+func (v *Value) String() string { return string(*v) }
+
+func (x *Value) equal(y Expr) bool {
+	if v, ok := y.(*Value); ok && v != nil {
+		return *x == *v
 	}
 	return false
 }
-
-// If you find the empty methods odd, see exprNode in
-// https://golang.org/src/go/ast/ast.go , or the article
-// "Sum types in Go": http://www.jerf.org/iri/post/2917
-
-func (Func) isExpr()   {}
-func (Metric) isExpr() {}
-func (Value) isExpr()  {}
-func (Query) isExpr()  {}

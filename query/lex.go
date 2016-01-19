@@ -48,7 +48,7 @@ type lexer struct {
 	items      chan item // scanned lexemes go here
 	err        []string  // errors from yacc
 	last       string    // last token emitted
-	result     Query     // yacc puts our result here
+	result     *Query    // yacc puts our result here
 }
 
 func lex(input string) *lexer {

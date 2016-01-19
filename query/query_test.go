@@ -8,25 +8,28 @@ import (
 type test struct {
 	in       string
 	lexOut   []item
-	parseOut Query
+	parseOut *Query
 }
+
+func metricP(m Metric) *Metric { return &m }
+func valueP(v Value) *Value    { return &v }
 
 var ttPositive = []test{
 	{
 		in:       "myhost.loadavg.05",
-		parseOut: Query{Expr: Metric("myhost.loadavg.05")},
+		parseOut: &Query{Expr: metricP("myhost.loadavg.05")},
 		lexOut: []item{
 			item{pMETRIC, "myhost.loadavg.05"},
 		},
 	},
 	{
 		in: "aliasByNode(myhost.loadavg.05, 1)",
-		parseOut: Query{
-			Expr: Func{
+		parseOut: &Query{
+			Expr: &Func{
 				Name: "aliasByNode",
 				Args: []Expr{
-					Metric("myhost.loadavg.05"),
-					Value("1"),
+					metricP("myhost.loadavg.05"),
+					valueP("1"),
 				},
 			},
 		},
@@ -41,12 +44,12 @@ var ttPositive = []test{
 	},
 	{
 		in: `alias(aws-east*.totals.{queues,exchanges,}, "All the \"best\"")`,
-		parseOut: Query{
-			Expr: Func{
+		parseOut: &Query{
+			Expr: &Func{
 				Name: "alias",
 				Args: []Expr{
-					Metric("aws-east*.totals.{queues,exchanges,}"),
-					Value(`"All the \"best\""`),
+					metricP("aws-east*.totals.{queues,exchanges,}"),
+					valueP(`"All the \"best\""`),
 				},
 			},
 		},
@@ -61,12 +64,12 @@ var ttPositive = []test{
 	},
 	{
 		in: "averageSeriesWithWildcards(host.cpu-[0-7].cpu-{user,system}.value, 1)",
-		parseOut: Query{
-			Expr: Func{
+		parseOut: &Query{
+			Expr: &Func{
 				Name: "averageSeriesWithWildcards",
 				Args: []Expr{
-					Metric("host.cpu-[0-7].cpu-{user,system}.value"),
-					Value("1"),
+					metricP("host.cpu-[0-7].cpu-{user,system}.value"),
+					valueP("1"),
 				},
 			},
 		},
@@ -76,6 +79,37 @@ var ttPositive = []test{
 			item{pMETRIC, "host.cpu-[0-7].cpu-{user,system}.value"},
 			item{',', ","},
 			item{pNUMBER, "1"},
+			item{')', ")"},
+		},
+	},
+	{
+		in: "alias(scale(qa.servers.usa-east-db1.mysql.mem.used_mb, 1048576), 'Mem Usage')",
+		parseOut: &Query{
+			Expr: &Func{
+				Name: "alias",
+				Args: []Expr{
+					&Func{
+						Name: "scale",
+						Args: []Expr{
+							metricP("qa.servers.usa-east-db1.mysql.mem.used_mb"),
+							valueP("1048576"),
+						},
+					},
+					valueP("'Mem Usage'"),
+				},
+			},
+		},
+		lexOut: []item{
+			item{pWORD, "alias"},
+			item{'(', "("},
+			item{pWORD, "scale"},
+			item{'(', "("},
+			item{pMETRIC, "qa.servers.usa-east-db1.mysql.mem.used_mb"},
+			item{',', ","},
+			item{pNUMBER, "1048576"},
+			item{')', ")"},
+			item{',', ","},
+			item{pSTRING, "'Mem Usage'"},
 			item{')', ")"},
 		},
 	},

@@ -446,55 +446,61 @@ yydefault:
 		yyDollar = yyS[yypt-1 : yypt+1]
 		//line expr.y:27
 		{
-			yylex.(*lexer).result = Query{Expr: yyDollar[1].expr}
+			yylex.(*lexer).result = &Query{Expr: yyDollar[1].expr}
 		}
 	case 2:
 		yyDollar = yyS[yypt-1 : yypt+1]
-		//line expr.y:33
+		//line expr.y:34
 		{
-			yyVAL.expr = Metric(yyDollar[1].str)
+			m := new(Metric)
+			*m = Metric(yyDollar[1].str)
+			yyVAL.expr = m
 		}
 	case 4:
 		yyDollar = yyS[yypt-4 : yypt+1]
-		//line expr.y:38
+		//line expr.y:43
 		{
-			yyVAL.expr = Func{Name: yyDollar[1].str, Args: yyDollar[3].list}
+			yyVAL.expr = &Func{Name: yyDollar[1].str, Args: yyDollar[3].list}
 		}
 	case 5:
 		yyDollar = yyS[yypt-0 : yypt+1]
-		//line expr.y:43
+		//line expr.y:48
 		{
 			yyVAL.list = nil
 		}
 	case 6:
 		yyDollar = yyS[yypt-1 : yypt+1]
-		//line expr.y:44
+		//line expr.y:49
 		{
 			yyVAL.list = append(yyVAL.list, yyDollar[1].expr)
 		}
 	case 7:
 		yyDollar = yyS[yypt-3 : yypt+1]
-		//line expr.y:45
+		//line expr.y:50
 		{
 			yyVAL.list = append(yyDollar[1].list, yyDollar[3].expr)
 		}
 	case 8:
 		yyDollar = yyS[yypt-1 : yypt+1]
-		//line expr.y:48
+		//line expr.y:53
 		{
 			yyVAL.expr = yyDollar[1].expr
 		}
 	case 9:
 		yyDollar = yyS[yypt-1 : yypt+1]
-		//line expr.y:49
+		//line expr.y:55
 		{
-			yyVAL.expr = Value(yyDollar[1].str)
+			v := new(Value)
+			*v = Value(yyDollar[1].str)
+			yyVAL.expr = v
 		}
 	case 10:
 		yyDollar = yyS[yypt-1 : yypt+1]
-		//line expr.y:50
+		//line expr.y:61
 		{
-			yyVAL.expr = Value(yyDollar[1].str)
+			v := new(Value)
+			*v = Value(yyDollar[1].str)
+			yyVAL.expr = v
 		}
 	}
 	goto yystack /* stack new state and value */

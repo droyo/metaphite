@@ -1,0 +1,129 @@
+
+state 0
+	$accept: .top $end 
+
+	pWORD  shift 5
+	pMETRIC  shift 3
+	.  error
+
+	function  goto 4
+	query  goto 2
+	top  goto 1
+
+state 1
+	$accept:  top.$end 
+
+	$end  accept
+	.  error
+
+
+state 2
+	top:  query.    (1)
+
+	.  reduce 1 (src line 27)
+
+
+state 3
+	query:  pMETRIC.    (2)
+
+	.  reduce 2 (src line 32)
+
+
+state 4
+	query:  function.    (3)
+
+	.  reduce 3 (src line 39)
+
+
+state 5
+	function:  pWORD.'(' arglist ')' 
+
+	'('  shift 6
+	.  error
+
+
+state 6
+	function:  pWORD '('.arglist ')' 
+	arglist: .    (5)
+
+	pNUMBER  shift 11
+	pWORD  shift 5
+	pSTRING  shift 10
+	pMETRIC  shift 3
+	.  reduce 5 (src line 47)
+
+	function  goto 4
+	query  goto 9
+	expr  goto 8
+	arglist  goto 7
+
+state 7
+	function:  pWORD '(' arglist.')' 
+	arglist:  arglist.',' expr 
+
+	')'  shift 12
+	','  shift 13
+	.  error
+
+
+state 8
+	arglist:  expr.    (6)
+
+	.  reduce 6 (src line 49)
+
+
+state 9
+	expr:  query.    (8)
+
+	.  reduce 8 (src line 52)
+
+
+state 10
+	expr:  pSTRING.    (9)
+
+	.  reduce 9 (src line 54)
+
+
+state 11
+	expr:  pNUMBER.    (10)
+
+	.  reduce 10 (src line 60)
+
+
+state 12
+	function:  pWORD '(' arglist ')'.    (4)
+
+	.  reduce 4 (src line 41)
+
+
+state 13
+	arglist:  arglist ','.expr 
+
+	pNUMBER  shift 11
+	pWORD  shift 5
+	pSTRING  shift 10
+	pMETRIC  shift 3
+	.  error
+
+	function  goto 4
+	query  goto 9
+	expr  goto 14
+
+state 14
+	arglist:  arglist ',' expr.    (7)
+
+	.  reduce 7 (src line 50)
+
+
+11 terminals, 6 nonterminals
+11 grammar rules, 15/2000 states
+0 shift/reduce, 0 reduce/reduce conflicts reported
+55 working sets used
+memory: parser 11/30000
+6 extra closures
+13 shift entries, 1 exceptions
+7 goto entries
+3 entries saved by goto default
+Optimizer space used: output 16/30000
+16 table entries, 0 zero
+maximum spread: 10, maximum offset: 13

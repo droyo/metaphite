@@ -24,19 +24,24 @@ package query
 %type <expr> function query expr
 %type <list> arglist
 %%
-top: query { yylex.(*lexer).result = Query{Expr: $1} }
+top: query { yylex.(*lexer).result = &Query{Expr: $1} }
 
 /* A query consists of a single metric pattern or a single
   function call. Numbers and quoted strings are not allowed
   at the top level. */
 query:
-	pMETRIC { $$ = Metric($1) }
+	pMETRIC
+	{
+		m := new(Metric)
+		*m = Metric($1)
+		$$ = m
+	}
 |	function
 
 function:
 	pWORD '(' arglist ')'
 	{
-		$$ = Func{Name: $1, Args: $3}
+		$$ = &Func{Name: $1, Args: $3}
 	}
 
 arglist:
@@ -46,5 +51,15 @@ arglist:
 
 expr:
 	query   { $$ = $1 }
-|	pSTRING { $$ = Value($1) }
-|	pNUMBER { $$ = Value($1) }
+|	pSTRING
+	{
+		v := new(Value)
+		*v = Value($1)
+		$$ = v
+	}
+|	pNUMBER
+	{
+		v := new(Value)
+		*v = Value($1)
+		$$ = v
+	}

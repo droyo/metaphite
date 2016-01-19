@@ -1,11 +1,9 @@
 package main
 
 import (
-	"crypto/tls"
 	"flag"
 	"log"
 	"net/http"
-	"net/http/httputil"
 	"os"
 
 	"github.com/droyo/meta-graphite/accesslog"
@@ -18,8 +16,6 @@ var (
 )
 
 func main() {
-	var srv httputil.ReverseProxy
-
 	log.SetFlags(0)
 	flag.Parse()
 	if *file == "" {
@@ -30,23 +26,17 @@ func main() {
 	if cfg, err := config.ParseFile(*file); err != nil {
 		log.Fatalf("parse %s failed: %s", *file, err)
 	} else {
-		srv.Director = cfg.MapRequest
+		http.Handle("/render", accesslog.Handler(cfg, nil))
 		if *addr == "" {
 			*addr = cfg.Address
 		}
-		if cfg.InsecureHTTPS {
-			srv.Transport = &http.Transport{
-				TLSClientConfig: &tls.Config{
-					InsecureSkipVerify: true,
-				},
-			}
-		}
 	}
-	http.Handle("/render", accesslog.Handler(&srv, nil))
 	status := make(chan error)
 	go func() {
 		status <- http.ListenAndServe(*addr, nil)
 	}()
 	log.Printf("listening on %s", *addr)
-	log.Fatal(<-status)
+	if err := <-status; err != nil {
+		log.Fatal(err)
+	}
 }

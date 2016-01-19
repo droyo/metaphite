@@ -7,29 +7,42 @@ key should be a metrics prefix to match, and the value should
 be a URL for the graphite server. For example,
 
 	{
-		"dev": "https://dev-graphite.example.net/",
-		"production": "https://graphite.example.net/",
-		"staging": "https://stage-graphite.example.net/"
+		"address": ":80",
+		"mappings": {
+			"dev": "https://dev-graphite.example.net/",
+			"production": "https://graphite.example.net/",
+			"staging": "https://stage-graphite.example.net/"
+		}
 	}
 */
 package config
 
 import (
+	"crypto/tls"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"io/ioutil"
+	"log"
 	"net/http"
+	"net/http/httputil"
 	"net/url"
 	"os"
 	"strings"
+
+	"github.com/droyo/meta-graphite/query"
 )
 
 var (
-	errPath        = errors.New("url path is not /render")
-	errEmptyTarget = errors.New("empty target query parameter")
-	errNotFound    = errors.New("prefix not found in config")
+	errNotFound   = errors.New("prefix not found in config")
+	errMultiMatch = errors.New("multiple backends in query")
 )
+
+type backend struct {
+	url *url.URL
+	*httputil.ReverseProxy
+}
 
 // A Config contains the necessary information for running
 // a meta-graphite server. Most importantly, it contains the
@@ -42,24 +55,9 @@ type Config struct {
 	// The address to listen on, if not specified on the command line.
 	Address string
 	// Maps from metrics prefix to backend URL.
-	Mappings mapping
-}
+	Mappings map[string]string
 
-type mapping map[string]url.URL
-
-func (c *mapping) UnmarshalJSON(data []byte) error {
-	tmp := make(map[string]string)
-	if err := json.Unmarshal(data, &tmp); err != nil {
-		return err
-	}
-	for k, v := range tmp {
-		if u, err := url.Parse(v); err != nil {
-			return err
-		} else {
-			(*c)[k] = *u
-		}
-	}
-	return nil
+	proxy map[string]backend
 }
 
 // ParseFile opens the config file at path and calls Parse
@@ -75,56 +73,121 @@ func ParseFile(path string) (*Config, error) {
 // Parse parses the config data from r and
 // parses its content into a *Config value.
 func Parse(r io.Reader) (*Config, error) {
-	cfg := Config{Mappings: make(mapping)}
+	cfg := Config{
+		Mappings: make(map[string]string),
+		proxy:    make(map[string]backend),
+	}
 	d := json.NewDecoder(r)
 	if err := d.Decode(&cfg); err != nil {
 		return nil, err
 	}
+	for k, v := range cfg.Mappings {
+		if u, err := url.Parse(v); err != nil {
+			return nil, err
+		} else {
+			b := backend{
+				ReverseProxy: httputil.NewSingleHostReverseProxy(u),
+				url:          u,
+			}
+			if cfg.InsecureHTTPS {
+				b.Transport = &http.Transport{
+					TLSClientConfig: &tls.Config{
+						InsecureSkipVerify: true,
+					},
+				}
+			}
+			cfg.proxy[k] = b
+		}
+	}
 	return &cfg, nil
 }
 
-func badRequest(r *http.Request) {
-	r.URL.Path = "/notfound"
+// some utility functions
+func httperror(w http.ResponseWriter, code int) {
+	http.Error(w, http.StatusText(code), code)
 }
 
-// MapRequest maps a request to the appropriate backend
-// servers with the prefix pattern stripped. If the URL is not
-// a valid graphite render query, an error is returned. Both
-// GET and POST requests are supported.
-func (c *Config) MapRequest(r *http.Request) {
+func badrequest(w http.ResponseWriter)  { httperror(w, 400) }
+func notfound(w http.ResponseWriter)    { httperror(w, 404) }
+func badmethod(w http.ResponseWriter)   { httperror(w, 405) }
+func unavailable(w http.ResponseWriter) { httperror(w, 503) }
+
+// ServeHTTP routes a graphite render query to a backend
+// graphite server based on its content. If the query contains
+// metrics that map one (and only one) of the prefixes in
+// a configuration, ServeHTTP will strip the prefix and proxy
+// the request to the appropriate backend server.
+func (c *Config) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/render" {
-		badRequest(r)
+		notfound(w)
 		return
 	}
 
-	target := r.FormValue("target")
-	parts := strings.SplitN(target, ".", 2)
-
-	if len(parts) < 2 {
-		badRequest(r)
+	if err := r.ParseForm(); err != nil {
+		log.Println(err)
+		badrequest(w)
 		return
 	}
 
-	prefix, rest := parts[0], parts[1]
-	mapped, ok := c.Mappings[prefix]
-	if !ok {
-		badRequest(r)
+	targets := r.Form["target"]
+	queries := make([]*query.Query, 0, len(targets))
+	for _, target := range targets {
+		if q, err := query.Parse(target); err != nil {
+			w.WriteHeader(400)
+			fmt.Fprintf(w, "Invalid query %q: %v", target, err)
+			return
+		} else {
+			queries = append(queries, q)
+		}
+	}
+	form, server := c.proxyTargets(queries)
+	for k, v := range r.Form {
+		if k != "target" {
+			form[k] = v
+		}
+	}
+
+	if server.ReverseProxy == nil {
+		log.Printf("no backend for %q", queries)
+		badrequest(w)
 		return
 	}
 
-	r.Form.Set("target", rest)
-	mapped.User = r.URL.User
-	mapped.Opaque = r.URL.Opaque
-	mapped.Path = "/render"
-	*r.URL = mapped
-	r.Host = r.URL.Host
-
-	if r.Method == "GET" {
-		r.URL.RawQuery = r.Form.Encode()
-	} else if r.Method == "POST" {
-		params := r.Form.Encode()
-		r.Header.Del("Content-Length")
-		r.ContentLength = int64(len(params))
-		r.Body = ioutil.NopCloser(strings.NewReader(params))
+	switch r.Method {
+	case "GET":
+		r.URL.RawQuery = form.Encode()
+		r.Host = server.url.Host
+		if dmp, err := httputil.DumpRequest(r, false); err == nil {
+			log.Printf("%s", dmp)
+		}
+	case "POST":
+		r.Body = ioutil.NopCloser(
+			strings.NewReader(form.Encode()))
 	}
+
+	server.ServeHTTP(w, r)
+}
+
+func (c *Config) proxyTargets(queries []*query.Query) (url.Values, backend) {
+	var server backend
+	var targets []string
+	for _, q := range queries {
+		tgt, srv := c.route(q)
+		targets = append(targets, tgt)
+		server = srv
+	}
+	return url.Values{"target": targets}, server
+}
+
+func (c *Config) route(q *query.Query) (target string, server backend) {
+	for _, m := range q.Metrics() {
+		pfx, rest := m.Split()
+		log.Printf("%q -> %q, %q", *m, pfx, rest)
+		s, ok := c.proxy[string(pfx)]
+		if ok {
+			server = s
+		}
+		*m = rest
+	}
+	return q.String(), server
 }

@@ -1,4 +1,4 @@
-![build status](https://travis-ci.org/droyo/metaphite.svg?branch=master)
+[![Build Status](https://travis-ci.org/droyo/metaphite.svg?branch=master)](https://travis-ci.org/droyo/metaphite)
 # metaphite: stitch multiple graphite servers together
 
 It is not uncommon to run separate graphite installations for

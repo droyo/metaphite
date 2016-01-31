@@ -30,6 +30,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/droyo/metaphite/certs"
 	"github.com/droyo/metaphite/query"
 )
 
@@ -46,6 +47,10 @@ type backend struct {
 type Config struct {
 	// Do not validate HTTPS certs
 	InsecureHTTPS bool
+	// directory to load CA certs from
+	CACertDir string
+	// file to load CA certs from
+	CACert string
 	// The address to listen on, if not specified on the command line.
 	Address string
 	// Maps from metrics prefix to backend URL.
@@ -69,6 +74,8 @@ func ParseFile(path string) (*Config, error) {
 // Parse parses the config data from r and
 // parses its content into a *Config value.
 func Parse(r io.Reader) (*Config, error) {
+	var pool certs.Pool
+	tlsconfig := new(tls.Config)
 	cfg := Config{
 		Mappings: make(map[string]string),
 		proxy:    make(map[string]backend),
@@ -76,6 +83,18 @@ func Parse(r io.Reader) (*Config, error) {
 	d := json.NewDecoder(r)
 	if err := d.Decode(&cfg); err != nil {
 		return nil, err
+	}
+	if cfg.InsecureHTTPS {
+		tlsconfig.InsecureSkipVerify = true
+	}
+	if cfg.CACert != "" {
+		pool = certs.Append(pool, certs.FromFile(cfg.CACert))
+	}
+	if cfg.CACertDir != "" {
+		pool = certs.Append(pool, certs.FromDir(cfg.CACertDir))
+	}
+	if pool != nil {
+		tlsconfig.RootCAs = pool.CertPool()
 	}
 	for k, v := range cfg.Mappings {
 		if u, err := url.Parse(v); err != nil {
@@ -85,13 +104,7 @@ func Parse(r io.Reader) (*Config, error) {
 				ReverseProxy: httputil.NewSingleHostReverseProxy(u),
 				url:          u,
 			}
-			if cfg.InsecureHTTPS {
-				b.Transport = &http.Transport{
-					TLSClientConfig: &tls.Config{
-						InsecureSkipVerify: true,
-					},
-				}
-			}
+			b.Transport = &http.Transport{TLSClientConfig: tlsconfig}
 			cfg.proxy[k] = b
 		}
 	}

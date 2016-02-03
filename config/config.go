@@ -172,10 +172,11 @@ func (c *Config) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	case "POST":
+		s := form.Encode()
+		r.ContentLength = int64(len(s))
 		r.Body = ioutil.NopCloser(
-			strings.NewReader(form.Encode()))
+			strings.NewReader(s))
 	}
-
 	server.ServeHTTP(w, r)
 }
 

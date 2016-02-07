@@ -26,7 +26,7 @@ func main() {
 	if cfg, err := config.ParseFile(*file); err != nil {
 		log.Fatalf("parse %s failed: %s", *file, err)
 	} else {
-		http.Handle("/render", accesslog.Handler(cfg, nil))
+		http.Handle("/", accesslog.Handler(cfg, nil))
 		if *addr == "" {
 			*addr = cfg.Address
 		}

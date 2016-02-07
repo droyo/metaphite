@@ -20,17 +20,14 @@ package config
 import (
 	"crypto/tls"
 	"encoding/json"
-	"fmt"
 	"io"
-	"io/ioutil"
-	"log"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
 	"os"
-	"strings"
 
 	"github.com/droyo/metaphite/certs"
+	"github.com/droyo/metaphite/multi"
 	"github.com/droyo/metaphite/query"
 )
 
@@ -58,7 +55,9 @@ type Config struct {
 	// Dump proxied requests
 	Debug bool
 
-	proxy map[string]backend
+	targets []multi.Target
+	client  *http.Client
+	*http.ServeMux
 }
 
 // ParseFile opens the config file at path and calls Parse
@@ -78,7 +77,6 @@ func Parse(r io.Reader) (*Config, error) {
 	tlsconfig := new(tls.Config)
 	cfg := Config{
 		Mappings: make(map[string]string),
-		proxy:    make(map[string]backend),
 	}
 	d := json.NewDecoder(r)
 	if err := d.Decode(&cfg); err != nil {
@@ -96,112 +94,37 @@ func Parse(r io.Reader) (*Config, error) {
 	if pool != nil {
 		tlsconfig.RootCAs = pool.CertPool()
 	}
+	cfg.client = &http.Client{
+		Transport: &http.Transport{TLSClientConfig: tlsconfig},
+	}
 	for k, v := range cfg.Mappings {
 		if u, err := url.Parse(v); err != nil {
 			return nil, err
 		} else {
-			b := backend{
-				ReverseProxy: httputil.NewSingleHostReverseProxy(u),
-				url:          u,
-			}
-			b.Transport = &http.Transport{TLSClientConfig: tlsconfig}
-			cfg.proxy[k] = b
+			cfg.targets = append(cfg.targets, multi.Target{
+				Name: k,
+				URL:  u,
+			})
 		}
 	}
+	cfg.ServeMux = http.NewServeMux()
+	cfg.HandleFunc("/metrics/find/", cfg.metricsFind)
+	cfg.HandleFunc("/metrics", cfg.metricsFind)
+	cfg.HandleFunc("/render", cfg.render)
 	return &cfg, nil
 }
 
-// some utility functions
-func httperror(w http.ResponseWriter, code int) {
-	http.Error(w, http.StatusText(code), code)
-}
+func (c *Config) matchingTargets(pat query.Metric) []multi.Target {
+	result := make([]multi.Target, 0, len(c.targets))
 
-func badrequest(w http.ResponseWriter)  { httperror(w, 400) }
-func notfound(w http.ResponseWriter)    { httperror(w, 404) }
-func badmethod(w http.ResponseWriter)   { httperror(w, 405) }
-func unavailable(w http.ResponseWriter) { httperror(w, 503) }
-
-// ServeHTTP routes a graphite render query to a backend
-// graphite server based on its content. If the query contains
-// metrics that map one (and only one) of the prefixes in
-// a configuration, ServeHTTP will strip the prefix and proxy
-// the request to the appropriate backend server.
-func (c *Config) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path != "/render" {
-		notfound(w)
-		return
-	}
-
-	if err := r.ParseForm(); err != nil {
-		log.Println(err)
-		badrequest(w)
-		return
-	}
-
-	targets := r.Form["target"]
-	queries := make([]*query.Query, 0, len(targets))
-	for _, target := range targets {
-		if q, err := query.Parse(target); err != nil {
-			w.WriteHeader(400)
-			fmt.Fprintf(w, "Invalid query %q: %v", target, err)
-			return
-		} else {
-			queries = append(queries, q)
-		}
-	}
-	form, server := c.proxyTargets(queries)
-	for k, v := range r.Form {
-		if k != "target" {
-			form[k] = v
-		}
-	}
-
-	if server.ReverseProxy == nil {
-		log.Printf("no backend for %q", queries)
-		badrequest(w)
-		return
-	}
-
-	switch r.Method {
-	case "GET":
-		r.URL.RawQuery = form.Encode()
-		r.Host = server.url.Host
-		if c.Debug {
-			if dmp, err := httputil.DumpRequest(r, false); err == nil {
-				log.Printf("%s", dmp)
+	metrics := pat.Expand()
+	for _, t := range c.targets {
+		for _, m := range metrics {
+			if m.Match(t.Name) {
+				result = append(result, t)
+				break
 			}
 		}
-	case "POST":
-		s := form.Encode()
-		r.ContentLength = int64(len(s))
-		r.Body = ioutil.NopCloser(
-			strings.NewReader(s))
 	}
-	server.ServeHTTP(w, r)
-}
-
-func (c *Config) proxyTargets(queries []*query.Query) (url.Values, backend) {
-	var server backend
-	var targets []string
-	for _, q := range queries {
-		tgt, srv := c.route(q)
-		targets = append(targets, tgt)
-		server = srv
-	}
-	return url.Values{"target": targets}, server
-}
-
-func (c *Config) route(q *query.Query) (target string, server backend) {
-	for _, m := range q.Metrics() {
-		pfx, rest := m.Split()
-		if c.Debug {
-			log.Printf("%q -> %q, %q", *m, pfx, rest)
-		}
-		s, ok := c.proxy[string(pfx)]
-		if ok {
-			server = s
-		}
-		*m = rest
-	}
-	return q.String(), server
+	return result
 }

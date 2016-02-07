@@ -19,6 +19,11 @@ func Handler(existing http.Handler, dest Logger) http.Handler {
 	return handler{handler: existing, dest: dest}
 }
 
+// HandleFunc behaves like Handler, but wraps an http.HandlerFunc
+func HandleFunc(fn func (http.ResponseWriter, *http.Request), dest Logger) http.Handler {
+	return handler{handler: http.HandlerFunc(fn), dest: dest}
+}
+
 // Types implementing the Logger interface can be used as destinations
 // for access log messages. The Printf method must be safe for concurrent
 // use among multiple goroutines.

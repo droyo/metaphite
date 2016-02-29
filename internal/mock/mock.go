@@ -15,7 +15,7 @@ type Server struct {
 }
 
 var testData = map[string]string{
-	"metrics": `{"metrics": [{
+	"metrics": `[{
     "is_leaf": 0,
     "name": "db01",
     "path": "collectd.db01."
@@ -23,7 +23,7 @@ var testData = map[string]string{
     "is_leaf": 1,
     "name": "foo",
     "path": "collectd.foo"
-}]}`,
+}]`,
 	"expand": `["collectd.db01", "collectd.foo"]`,
 	"render": `[{
   "target": "entries",

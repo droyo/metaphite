@@ -13,3 +13,9 @@ func decodeJSON(r io.Reader, v interface{}) error {
 func httperror(w http.ResponseWriter, code int) {
 	http.Error(w, http.StatusText(code), code)
 }
+
+func copyReq(r *http.Request) *http.Request {
+	cp := new(http.Request)
+	*cp = *r
+	return cp
+}

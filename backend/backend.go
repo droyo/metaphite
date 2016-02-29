@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/http/httputil"
 	"net/url"
 	"sync"
 
@@ -21,8 +22,9 @@ type Mux struct {
 }
 
 type server struct {
-	dest *url.URL
-	name string
+	dest  *url.URL
+	name  string
+	proxy func(*http.Request) (*http.Response, error)
 }
 
 // Result of /metrics/find API
@@ -46,13 +48,7 @@ type response struct {
 // An error is returned if any invalid url or prefix strings are
 // provided.
 func NewMux(tr http.RoundTripper, mappings map[string]string) (*Mux, error) {
-	client := http.DefaultClient
-	if tr != nil {
-		client := &http.Client{Transport: tr}
-	}
 	mux := &Mux{
-		client:   client,
-		servers:  make(map[string]url.URL),
 		serveMux: http.NewServeMux(),
 	}
 	for pfx, urlStr := range mappings {
@@ -60,9 +56,17 @@ func NewMux(tr http.RoundTripper, mappings map[string]string) (*Mux, error) {
 		if err != nil {
 			return nil, err
 		}
-		mux.servers = append(mux.servers, server{dest: u, name: pfx})
+
+		srv := server{dest: u, name: pfx}
+		rev := httputil.NewSingleHostReverseProxy(u)
+		srv.proxy = func(r *http.Request) (*http.Response, error) {
+			r = copyReq(r)
+			rev.Director(r)
+			return tr.RoundTrip(r)
+		}
+		mux.servers = append(mux.servers, srv)
 	}
-	mux.serveMux.HandleFunc("/render/", mux.render)
+	mux.serveMux.HandleFunc("/render", mux.render)
 	mux.serveMux.HandleFunc("/metrics", mux.metrics)
 	mux.serveMux.HandleFunc("/metrics/find/", mux.metrics)
 	mux.serveMux.HandleFunc("/metrics/expand/", mux.expand)
@@ -132,8 +136,8 @@ func (m *Mux) proxyMetrics(servers []server, r *http.Request) <-chan response {
 	for _, srv := range servers {
 		wg.Add(1)
 		go func(r *http.Request, srv server) {
-			rsp, err := m.proxy(srv, r)
-			responses <- response{err: err, server: server, Response: rsp}
+			rsp, err := srv.proxy(r)
+			responses <- response{err: err, server: srv, Response: rsp}
 			wg.Done()
 		}(r, srv)
 	}
@@ -188,11 +192,6 @@ func (m *Mux) expand(w http.ResponseWriter, r *http.Request) {
 		log.Printf("/metrics/expand request failed: %s", err)
 		return
 	}
-	if err := m.proxyMetrics(w, r, servers, &result); err != nil {
-		log.Print(err)
-		return
-	}
-	var result []string
 	var rsp response
 	for rsp = range m.proxyMetrics(servers, r) {
 		if rsp.err != nil {
@@ -217,4 +216,8 @@ func (m *Mux) expand(w http.ResponseWriter, r *http.Request) {
 	} else {
 		httperror(w, 503)
 	}
+}
+
+func (m *Mux) render(w http.ResponseWriter, r *http.Request) {
+	httperror(w, 404)
 }

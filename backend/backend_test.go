@@ -8,7 +8,7 @@ import (
 	"github.com/droyo/metaphite/internal/mock"
 )
 
-func testMux(t *testing.T) *Mux {
+func newMux(t *testing.T) *Mux {
 	tr := new(http.Transport)
 	tr.RegisterProtocol("dev", mock.NewServer())
 	tr.RegisterProtocol("stage", mock.NewServer())
@@ -24,18 +24,32 @@ func testMux(t *testing.T) *Mux {
 	return mux
 }
 
-func testRequest(mux *Mux, query string) *httptest.ResponseRecorder {
+func testRequest(t *testing.T, query string) {
+	mux := newMux(t)
 	r, err := http.NewRequest("GET", query, nil)
 	if err != nil {
 		panic(err)
 	}
-	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, r)
-	return w
+	rsp := httptest.NewRecorder()
+	mux.ServeHTTP(rsp, r)
+	if rsp.Code != 200 {
+		t.Errorf("request returned %d", rsp.Code)
+	}
+	t.Logf("%d - %s", rsp.Code, rsp.Body.String())
 }
 
-func TestProxyOne(t *testing.T) {
-	mux := testMux(t)
-	rsp := testRequest(mux, "/render?target=stage.entries")
-	t.Log(rsp.Body.String())
+func TestProxyRender(t *testing.T) {
+	testRequest(t, "/render?target=stage.entries")
+}
+
+func TestProxyMetricFind(t *testing.T) {
+	testRequest(t, "/metrics?query=stage.collectd.*")
+}
+
+func TestMultiMetric(t *testing.T) {
+	testRequest(t, "/metrics?query=*.collectd.*")
+}
+
+func TestMultiRender(t *testing.T) {
+	testRequest(t, "/render?target=*.entries")
 }

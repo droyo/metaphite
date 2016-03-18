@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/url"
 )
 
 func decodeJSON(r io.Reader, v interface{}) error {
@@ -16,6 +17,11 @@ func httperror(w http.ResponseWriter, code int) {
 
 func copyReq(r *http.Request) *http.Request {
 	cp := new(http.Request)
+	form := make(url.Values, len(r.Form))
+	for key, val := range r.Form {
+		form[key] = val
+	}
 	*cp = *r
+	cp.Form = form
 	return cp
 }
